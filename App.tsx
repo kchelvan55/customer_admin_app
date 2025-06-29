@@ -119,6 +119,15 @@ export const App: React.FC = () => {
   const [isModificationConfirmModalOpen, setIsModificationConfirmModalOpen] = useState(false);
   const [orderIdPendingModification, setOrderIdPendingModification] = useState<string | null>(null);
   
+  // Order modification summary modal state
+  const [isModificationSummaryModalOpen, setIsModificationSummaryModalOpen] = useState(false);
+  const [modificationSummaryData, setModificationSummaryData] = useState<{
+    originalItems: ProductInCart[];
+    newItems: ProductInCart[];
+    originalTotal: number;
+    newTotal: number;
+  } | null>(null);
+  
   const [newTemplateName, setNewTemplateName] = useState('');
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
@@ -1384,6 +1393,84 @@ export const App: React.FC = () => {
   const handleCancelModificationConfirm = () => {
     setIsModificationConfirmModalOpen(false);
     setOrderIdPendingModification(null);
+  };
+
+  const handleOpenModificationSummary = (newItems: ProductInCart[], newTotal: number) => {
+    if (!orderBeingModified) {
+      return;
+    }
+    
+    setModificationSummaryData({
+      originalItems: orderBeingModified.items,
+      newItems: newItems,
+      originalTotal: orderBeingModified.totalPrice,
+      newTotal: newTotal
+    });
+    setIsModificationSummaryModalOpen(true);
+  };
+
+  const handleCloseModificationSummary = () => {
+    setIsModificationSummaryModalOpen(false);
+    setModificationSummaryData(null);
+  };
+
+  const handleConfirmModificationSummary = () => {
+    // Get the data from the modal summary
+    if (modificationSummaryData && orderBeingModified) {
+      performOrderModificationSave(modificationSummaryData.newItems, modificationSummaryData.newTotal);
+    }
+    
+    // Close the summary modal
+    setIsModificationSummaryModalOpen(false);
+    setModificationSummaryData(null);
+  };
+
+  const performOrderModificationSave = (newItems: ProductInCart[], newTotal: number) => {
+    if (!orderBeingModified) {
+      return;
+    }
+
+    // Calculate modification summary
+    const originalItems = orderBeingModified.items;
+    const originalTotal = orderBeingModified.totalPrice;
+    const priceChange = newTotal - originalTotal;
+    
+    let modificationSummary = '';
+    if (originalItems.length !== newItems.length) {
+      modificationSummary += `Items changed from ${originalItems.length} to ${newItems.length}. `;
+    }
+    if (priceChange !== 0) {
+      modificationSummary += `Total changed by $${Math.abs(priceChange).toFixed(2)} (${priceChange > 0 ? 'increase' : 'decrease'})`;
+    }
+
+    // Update the existing order with modification tracking
+    const updatedOrder: Order = {
+      ...orderBeingModified,
+      items: newItems,
+      totalPrice: newTotal,
+      status: 'To select date', // Reset status for re-processing
+      // Modification tracking
+      isModified: true,
+      originalTotalPrice: originalTotal,
+      modificationDate: new Date().toISOString(),
+      modificationSummary: modificationSummary || 'Order items modified'
+    };
+
+    const newOrders = orders.map(order => 
+      order.id === orderBeingModified.id ? updatedOrder : order
+    );
+    
+    setOrders(newOrders);
+
+    // Clear modification state
+    setOrderBeingModified(null);
+    setModificationCartItems([]);
+    setIsInModificationMode(false);
+    setModificationSearchQuery('');
+    setShowAddItemsSection(false);
+    
+    showToast(`Order ${orderBeingModified.id} modified successfully!`);
+    setCustomerCurrentPage(Page.ORDER_HISTORY);
   };
 
   const canModifyOrder = (order: Order): boolean => {
@@ -3638,48 +3725,12 @@ const renderViewTemplateDetailsPage = () => {
         alert('Cannot save an empty order. Please add items or cancel the modification.');
         return;
       }
-
-      // Calculate modification summary
-      const originalItems = orderBeingModified.items;
-      const originalTotal = orderBeingModified.totalPrice;
-      const newTotal = totalModificationPrice;
-      const priceChange = newTotal - originalTotal;
       
-      let modificationSummary = '';
-      if (originalItems.length !== modificationProducts.length) {
-        modificationSummary += `Items changed from ${originalItems.length} to ${modificationProducts.length}. `;
-      }
-      if (priceChange !== 0) {
-        modificationSummary += `Total changed by $${Math.abs(priceChange).toFixed(2)} (${priceChange > 0 ? 'increase' : 'decrease'})`;
-      }
-
-      // Update the existing order with modification tracking
-      const updatedOrder: Order = {
-        ...orderBeingModified,
-        items: modificationProducts,
-        totalPrice: totalModificationPrice,
-        status: 'To select date', // Reset status for re-processing
-        // Modification tracking
-        isModified: true,
-        originalTotalPrice: originalTotal,
-        modificationDate: new Date().toISOString(),
-        modificationSummary: modificationSummary || 'Order items modified'
-      };
-
-      setOrders(orders.map(order => 
-        order.id === orderBeingModified.id ? updatedOrder : order
-      ));
-
-      // Clear modification state
-      setOrderBeingModified(null);
-      setModificationCartItems([]);
-      setIsInModificationMode(false);
-      setModificationSearchQuery('');
-      setShowAddItemsSection(false);
-      
-      showToast(`Order ${orderBeingModified.id} modified successfully!`);
-      setCustomerCurrentPage(Page.ORDER_HISTORY);
+      // Show the modification summary modal first
+      handleOpenModificationSummary(modificationProducts, totalModificationPrice);
     };
+
+
 
     const handleCancelModification = () => {
       setOrderBeingModified(null);
@@ -8964,6 +9015,165 @@ const renderAdminUserManagementPage = () => {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Order Modification Summary Modal */}
+      <Modal
+        isOpen={isModificationSummaryModalOpen}
+        onClose={handleCloseModificationSummary}
+        title="Order Modification Summary"
+      >
+        {modificationSummaryData && (() => {
+          const { originalItems, newItems, originalTotal, newTotal } = modificationSummaryData;
+          
+          // Analyze changes
+          const removedItems: ProductInCart[] = [];
+          const addedItems: ProductInCart[] = [];
+          const quantityChanges: Array<{
+            product: ProductInCart;
+            oldQuantity: number;
+            newQuantity: number;
+            isIncrease: boolean;
+          }> = [];
+
+          // Find removed items (in original but not in new)
+          originalItems.forEach(originalItem => {
+            const foundInNew = newItems.find(newItem => newItem.id === originalItem.id);
+            if (!foundInNew) {
+              removedItems.push(originalItem);
+            }
+          });
+
+          // Find added items and quantity changes
+          newItems.forEach(newItem => {
+            const foundInOriginal = originalItems.find(originalItem => originalItem.id === newItem.id);
+            if (!foundInOriginal) {
+              // This is a new item
+              addedItems.push(newItem);
+            } else if (foundInOriginal.quantity !== newItem.quantity) {
+              // This is a quantity change
+              quantityChanges.push({
+                product: newItem,
+                oldQuantity: foundInOriginal.quantity,
+                newQuantity: newItem.quantity,
+                isIncrease: newItem.quantity > foundInOriginal.quantity
+              });
+            }
+          });
+
+          const totalChange = newTotal - originalTotal;
+          const isIncrease = totalChange > 0;
+
+          return (
+            <div className="space-y-6 max-h-96 overflow-y-auto">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-800 mb-2">Order Summary</h3>
+                <div className="text-sm text-blue-700 space-y-1">
+                  <div>
+                    <span className="font-medium">Order ID:</span> #{orderBeingModified?.id}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium">Total:</span>
+                    <span className="line-through text-gray-500">${originalTotal.toFixed(2)}</span>
+                    <Icon 
+                      name={isIncrease ? "arrowUp" : "arrowDown"} 
+                      className={`w-4 h-4 ${isIncrease ? 'text-green-600' : 'text-red-600'}`} 
+                    />
+                    <span className={`font-semibold ${isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                      ${newTotal.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="text-xs">
+                    {isIncrease ? 'Increase' : 'Decrease'} of ${Math.abs(totalChange).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Removed Items */}
+              {removedItems.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h4 className="font-medium text-red-800 mb-3 flex items-center">
+                    <Icon name="minus" className="w-4 h-4 mr-2" />
+                    Item(s) Removed ({removedItems.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {removedItems.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-sm">
+                        <span className="line-through text-gray-500 flex-grow">{item.name}</span>
+                        <span className="line-through text-gray-500 ml-2">{item.quantity} {item.uom}</span>
+                        <span className="line-through text-gray-500 ml-2">${(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Added Items */}
+              {addedItems.length > 0 && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h4 className="font-medium text-green-800 mb-3 flex items-center">
+                    <Icon name="plus" className="w-4 h-4 mr-2" />
+                    Item(s) Added ({addedItems.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {addedItems.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-sm">
+                        <span className="text-green-700 font-medium flex-grow">{item.name}</span>
+                        <span className="text-green-700 ml-2">{item.quantity} {item.uom}</span>
+                        <span className="text-green-700 font-semibold ml-2">${(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quantity Changes */}
+              {quantityChanges.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <h4 className="font-medium text-amber-800 mb-3 flex items-center">
+                    <Icon name="edit" className="w-4 h-4 mr-2" />
+                    Quantities Adjusted ({quantityChanges.length})
+                  </h4>
+                  <div className="space-y-3">
+                    {quantityChanges.map(change => (
+                      <div key={change.product.id} className="text-sm">
+                        <div className="font-medium text-amber-800 mb-1">{change.product.name}</div>
+                        <div className="flex items-center space-x-2">
+                          <span className="line-through text-gray-500">{change.oldQuantity} {change.product.uom}</span>
+                          <Icon 
+                            name={change.isIncrease ? "arrowUp" : "arrowDown"} 
+                            className={`w-4 h-4 ${change.isIncrease ? 'text-green-600' : 'text-red-600'}`} 
+                          />
+                          <span className={`font-semibold ${change.isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                            {change.newQuantity} {change.product.uom}
+                          </span>
+                          <span className="text-xs text-gray-600 ml-2">
+                            (${(change.product.price * change.oldQuantity).toFixed(2)} → ${(change.product.price * change.newQuantity).toFixed(2)})
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-neutral-100">
+                <Button 
+                  variant="secondary" 
+                  onClick={handleCloseModificationSummary}
+                >
+                  Go Back
+                </Button>
+                <Button 
+                  variant="success" 
+                  onClick={handleConfirmModificationSummary}
+                >
+                  Confirm Changes
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
