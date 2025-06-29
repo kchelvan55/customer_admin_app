@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Product Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              light: '#60a5fa', // blue-400
+              DEFAULT: '#3b82f6', // blue-500
+              dark: '#2563eb', // blue-600
+            },
+            secondary: {
+              light: '#fbbf24', // amber-400
+              DEFAULT: '#f59e0b', // amber-500
+              dark: '#d97706', // amber-600
+            },
+            neutral: {
+              lightest: '#f9fafb', // gray-50
+              light: '#f3f4f6', // gray-100
+              DEFAULT: '#d1d5db', // gray-300
+              dark: '#6b7280', // gray-500
+              darker: '#374151', // gray-700
+              darkest: '#1f293d', // gray-800
+            },
+            success: { // New success color
+              light: '#4ade80', // green-400
+              DEFAULT: '#22c55e', // green-500
+              dark: '#16a34a', // green-600
+            },
+          }
+        }
+      }
+    }
+  </script>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/"
+  }
+}
+</script>
+<style>
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; 
+  }
+
+  .app-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .side-by-side-layout {
+    display: flex;
+    flex-grow: 1; 
+    overflow: hidden; /* Prevent this layout from scrolling; child panels handle their own */
+  }
+
+  .customer-panel, .admin-panel {
+    /* height: 100%; -- Removed, flex will handle height */
+    /* overflow-y: auto; -- Removed, inner content div will scroll */
+    position: relative; /* For absolutely positioned navbars */
+    display: flex; 
+    flex-direction: column; 
+    flex: 1; /* Allow panels to take space in side-by-side layout */
+    overflow: hidden; /* CRITICAL: Prevents panel itself from scrolling; content *inside* scrolls */
+  }
+
+  /* Default split view */
+  .side-by-side-layout.split-mode .customer-panel,
+  .side-by-side-layout.split-mode .admin-panel {
+    flex: 1; 
+    border-left: 1px solid #e5e7eb; 
+  }
+  .side-by-side-layout.split-mode .customer-panel {
+    border-left: none;
+  }
+
+  /* Customer focus mode */
+  .side-by-side-layout.customer-focus-mode .customer-panel {
+    flex: 1; /* Takes full width as admin-panel is display:none */
+    display: flex; /* keep flex properties */
+  }
+  .side-by-side-layout.customer-focus-mode .admin-panel {
+    display: none !important;
+  }
+
+  /* Admin focus mode */
+  .side-by-side-layout.admin-focus-mode .admin-panel {
+    flex: 1; /* Takes full width */
+    display: flex; /* keep flex properties */
+  }
+  .side-by-side-layout.admin-focus-mode .customer-panel {
+    display: none !important;
+  }
+
+
+  /* Adjustments for fixed/absolute navbars within panels */
+  /* These are now correctly positioned relative to their respective panels */
+  .customer-panel .customer-navbar { 
+    position: absolute; 
+    bottom: 0;
+    left: 0;
+    right: 0;
+    /* Tailwind classes in Navbar.tsx will handle height, bg, etc. */
+  }
+  .admin-panel .admin-navbar { 
+    position: absolute; 
+    top: 0;
+    left: 0;
+    right: 0;
+     /* Tailwind classes in AdminNavbar.tsx will handle height, bg, etc. */
+  }
+  
+  .panel-control-bar { 
+    height: 3rem; /* Approx 48px */
+    flex-shrink: 0; /* Prevent shrinking */
+  }
+
+
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      font-size: 10pt;
+      height: auto;
+      overflow: visible;
+      color: black !important; /* Base body color for print */
+    }
+    .app-container {
+        height: auto;
+        flex-direction: column-reverse; 
+    }
+    .side-by-side-layout {
+        display: block; 
+        height: auto;
+        flex-grow: initial;
+        overflow: visible;
+    }
+    .customer-panel, .admin-panel {
+        flex: none;
+        width: 100%;
+        height: auto;
+        overflow: visible !important; /* Ensure visibility for print */
+        border-left: none;
+        page-break-after: always;
+        display: block !important; 
+    }
+    .customer-panel:last-child, .admin-panel:last-child {
+        page-break-after: auto;
+    }
+
+    .print\:hidden { display: none !important; }
+    .print\:shadow-none { box-shadow: none !important; }
+    .print\:border-none { border: none !important; }
+    .print\:my-0 { margin-top: 0 !important; margin-bottom: 0 !important; }
+    .print\:page-break-after { page-break-after: always; }
+    
+    .invoice-page {
+        max-width: 100% !important; 
+        margin: 0 !important; 
+        box-shadow: none !important; 
+        border: none !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* Force all text within .invoice-page (and its descendants) to black */
+    .invoice-page,
+    .invoice-page * {
+      color: black !important;
+      background-color: transparent !important;
+      text-shadow: none !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    
+    /* Stronger, more specific rules for table headers and cells within invoice */
+    .invoice-page table th,
+    .invoice-page table td {
+      color: black !important;
+      background-color: transparent !important; /* Explicitly set background */
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    /* Target any children elements inside th/td to also be black */
+    .invoice-page table th *,
+    .invoice-page table td * {
+      color: black !important;
+      background-color: transparent !important; /* Explicitly set background */
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    
+    /* Specific overrides for common Tailwind text color classes used in invoice, forcing them to black */
+    .invoice-page .text-primary,
+    .invoice-page [class*="text-primary-"],
+    .invoice-page .text-secondary,
+    .invoice-page [class*="text-secondary-"],
+    .invoice-page .text-neutral-lightest,
+    .invoice-page .text-neutral-light,
+    .invoice-page .text-neutral-DEFAULT,
+    .invoice-page .text-neutral-dark,
+    .invoice-page .text-neutral-darker,
+    .invoice-page .text-neutral-darkest,
+    .invoice-page .text-success,
+    .invoice-page [class*="text-success-"] {
+      color: black !important;
+    }
+
+    /* Ensure table header bottom border (the thick line) is black */
+    .invoice-page thead.border-neutral-darker, 
+    .invoice-page .border-neutral-darker {
+        border-color: black !important;
+    }
+    /* Make other borders very light gray or black if they need to be visible */
+    .invoice-page .border-neutral-light,
+    .invoice-page .border-neutral-DEFAULT,
+    .invoice-page table tr { 
+        border-color: #cccccc !important; 
+    }
+    .invoice-page table { 
+        border-collapse: collapse; 
+    }
+
+
+    nav.fixed.bottom-0.customer-navbar, .customer-navbar,
+    nav.fixed.top-0.admin-navbar, .admin-navbar,
+    .panel-control-bar { 
+        display: none !important; 
+    }
+    
+    .fixed.top-4.right-4 { display: none !important; } /* Toast messages */
+
+    .admin-panel .pt-14, .admin-panel .pt-20 { padding-top: 0 !important; }
+    .customer-panel > div:first-child[class*="pb-16"], 
+    .customer-panel > div:first-child[class*="pb-20"] {
+        padding-bottom: 0 !important;
+    }
+    
+    .invoice-page svg {
+        fill: currentColor !important; 
+        stroke: currentColor !important;
+    }
+    
+    .invoice-page ::placeholder {
+        color: black !important;
+        opacity: 1 !important; 
+    }
+    .invoice-page :-ms-input-placeholder { 
+        color: black !important;
+    }
+    .invoice-page ::-ms-input-placeholder { 
+        color: black !important;
+    }
+  }
+</style>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-neutral-light">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
