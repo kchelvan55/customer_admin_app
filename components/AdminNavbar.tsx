@@ -56,6 +56,12 @@ const AdminNavbar: React.FC<AdminNavbarProps> = ({ currentPage, onNavigate, clas
             isActive={currentPage === Page.ADMIN_USER_MANAGEMENT}
             onClick={() => onNavigate(Page.ADMIN_USER_MANAGEMENT)}
           />
+          <AdminNavItem
+            label="Products"
+            iconName="list"
+            isActive={currentPage === Page.ADMIN_PRODUCT_CATALOG}
+            onClick={() => onNavigate(Page.ADMIN_PRODUCT_CATALOG)}
+          />
           {/* Add more admin nav items here as sections are built */}
         </div>
         <div className="flex items-center space-x-2 text-sm text-neutral-light">

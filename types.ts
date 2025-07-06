@@ -5,7 +5,10 @@ export interface Product {
   price: number;
   imageUrl: string;
   category: string;
-  uom: string; // New field for Unit of Measure
+  uom: string; // Unit of Measure
+  vendor?: string; // New field for vendor/supplier
+  createdAt?: string; // New field for product added date and time
+  updatedAt?: string; // New field for product updated date and time
 }
 
 export interface CartItem {
@@ -87,6 +90,46 @@ export const AdminStaffNames = ["Saraswathi", "Sumathi", "Shabeena", "Cini", "Ro
 export type AdminStaffName = typeof AdminStaffNames[number];
 export const DEFAULT_LOGGED_IN_ADMIN_STAFF: AdminStaffName = "Saraswathi";
 
+export type ModificationRequestStatus = 'pending' | 'accepted' | 'denied';
+
+export interface ModificationRequestItem extends ProductInCart {
+  itemStatus: ModificationRequestStatus; // Individual product status
+  processedDate?: string; // When this specific item was processed
+  processedBy?: AdminStaffName; // Which admin processed this item
+  // New fields to store original change information
+  changeType?: 'added' | 'removed' | 'quantityChanged'; // Type of change
+  originalQuantity?: number; // Original quantity before the change (null for new items)
+}
+
+export interface ModificationRequest {
+  id: string; // Unique identifier for each request
+  requestedItems: ModificationRequestItem[];
+  requestedTotalPrice: number;
+  requestDate: string;
+  requestSummary: string;
+  status: ModificationRequestStatus; // Overall request status
+  processedDate?: string; // When entire request was completed (all items processed)
+  processedBy?: AdminStaffName; // Which admin processed it
+  processedRemovedItems?: Array<{
+    productId: string;
+    status: ModificationRequestStatus;
+    processedDate: string;
+    processedBy: AdminStaffName;
+    // Additional fields needed for display
+    productName?: string;
+    originalQuantity?: number;
+    unitPrice?: number;
+    changeType?: 'removed';
+  }>; // Track individually processed removed items
+  pendingRemovedItems?: Array<{
+    productId: string;
+    productName: string;
+    originalQuantity: number;
+    unitPrice: number;
+    changeType: 'removed';
+  }>; // Track removed items for pending requests
+}
+
 export interface Order {
   id: string;
   items: ProductInCart[];
@@ -107,7 +150,10 @@ export interface Order {
   shippingDate?: string; // Date the order is scheduled for shipping
   packedBy?: AdminStaffNamePackedBy;
   deliveredBy?: AdminStaffNameDeliveredBy;
-  // Order modification tracking
+  // Order modification request tracking
+  modificationRequests?: ModificationRequest[]; // Array of pending modification requests
+  processedModificationRequests?: ModificationRequest[]; // Array of all processed requests (accepted/denied)
+  // Legacy modification tracking (for orders modified before request system)
   isModified?: boolean;
   originalTotalPrice?: number;
   modificationDate?: string;
@@ -223,6 +269,7 @@ export const ALL_ADMIN_ORDER_TABLE_COLUMNS: AdminOrderTableColumnConfig[] = [
     { id: 'orderId', label: 'Order ID', defaultVisible: true, minWidth: '130px' },
     { id: 'customerOrderDate', label: 'Customer Order Date', defaultVisible: true, minWidth: '110px' }, 
     { id: 'customerInvoiceRequestDate', label: 'Cust. Invoice Req. Date', defaultVisible: true, minWidth: '110px' },
+    { id: 'shippingDate', label: 'Shipping Date', defaultVisible: true, minWidth: '100px', isEditable: true }, 
     { id: 'billedDate', label: 'Billed Date', defaultVisible: false, minWidth: '100px' }, // Hidden by default for To Pick Date
     { id: 'shipmentRegion', label: 'Shipment Region', defaultVisible: true, minWidth: '110px', isEditable: false },
     { id: 'shipmentSchedule', label: 'Shipment Schedule#', defaultVisible: false, minWidth: '100px', isEditable: false }, // Hidden by default
@@ -231,14 +278,13 @@ export const ALL_ADMIN_ORDER_TABLE_COLUMNS: AdminOrderTableColumnConfig[] = [
     { id: 'shop', label: 'Shop', defaultVisible: true, minWidth: '110px' }, 
     { id: 'total', label: 'Total', defaultVisible: true, minWidth: '80px' }, 
     { id: 'status', label: 'Billing Status', defaultVisible: false, minWidth: '140px', isEditable: true }, 
-    { id: 'shippingDate', label: 'Shipping Date', defaultVisible: true, minWidth: '100px', isEditable: true }, 
     { id: 'billedInInsmartBy', label: 'Billed By', defaultVisible: false, minWidth: '100px', isEditable: true }, // Hidden by default for To Pick Date 
     { id: 'packedBy', label: 'Packed By', defaultVisible: false, minWidth: '100px', isEditable: true }, 
     { id: 'deliveredBy', label: 'Delivered By', defaultVisible: false, minWidth: '100px', isEditable: true }, 
 ];
 
-export type AdminOrderManagementSubTab = 'To Pick Date' | 'To Bill in Insmart' | 'Billed to Schedule' | 'Schedule' | 'Accounting related' | 'All Orders';
-export const ADMIN_ORDER_MANAGEMENT_SUB_TABS: AdminOrderManagementSubTab[] = ['To Pick Date', 'To Bill in Insmart', 'Billed to Schedule', 'Schedule', 'Accounting related', 'All Orders'];
+export type AdminOrderManagementSubTab = 'To Pick Date' | 'To Bill in Insmart' | 'Billed to Schedule' | 'Schedule' | 'Accounting related' | 'Modification Requests' | 'All Orders';
+export const ADMIN_ORDER_MANAGEMENT_SUB_TABS: AdminOrderManagementSubTab[] = ['To Pick Date', 'To Bill in Insmart', 'Billed to Schedule', 'Schedule', 'Accounting related', 'Modification Requests', 'All Orders'];
 
 export type AdminUserManagementSubTab = 'Individual User Management' | 'Organization and Shop Management' | 'User Groups' | 'Activity Logs';
 export const ADMIN_USER_MANAGEMENT_SUB_TABS: AdminUserManagementSubTab[] = [
@@ -248,6 +294,37 @@ export const ADMIN_USER_MANAGEMENT_SUB_TABS: AdminUserManagementSubTab[] = [
   'Activity Logs'
 ];
 
+// Admin Product Catalog Table Types
+export type AdminProductTableColumnId = 
+  | 'select' 
+  | 'productImage'
+  | 'productName' 
+  | 'uom'
+  | 'vendor'
+  | 'price'
+  | 'category'
+  | 'createdAt'
+  | 'updatedAt';
+
+export interface AdminProductTableColumnConfig {
+    id: AdminProductTableColumnId;
+    label: string;
+    defaultVisible: boolean;
+    minWidth?: string;
+    isEditable?: boolean;
+}
+
+export const ALL_ADMIN_PRODUCT_TABLE_COLUMNS: AdminProductTableColumnConfig[] = [
+    { id: 'select', label: '', defaultVisible: true, minWidth: '25px' }, 
+    { id: 'productImage', label: 'Image', defaultVisible: true, minWidth: '80px' },
+    { id: 'productName', label: 'Product Name', defaultVisible: true, minWidth: '200px', isEditable: true },
+    { id: 'uom', label: 'UOM', defaultVisible: true, minWidth: '80px', isEditable: true },
+    { id: 'vendor', label: 'Vendor', defaultVisible: true, minWidth: '150px', isEditable: true },
+    { id: 'price', label: 'Price', defaultVisible: true, minWidth: '100px', isEditable: true },
+    { id: 'category', label: 'Category', defaultVisible: true, minWidth: '120px', isEditable: true },
+    { id: 'createdAt', label: 'Added Date', defaultVisible: true, minWidth: '120px' },
+    { id: 'updatedAt', label: 'Updated Date', defaultVisible: false, minWidth: '120px' },
+];
 
 export interface AssignmentPriorityModalInfo {
   orderForPrompt: Order;

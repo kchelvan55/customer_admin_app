@@ -10,12 +10,13 @@ import {
     SupportTicket, TicketIssue, ADMIN_ORDER_STATUS_OPTIONS, OrderStatus,
     AdminStaffName, AdminStaffNames, DEFAULT_LOGGED_IN_ADMIN_STAFF, PanelDisplayMode,
     AdminOrderTableColumnConfig, ALL_ADMIN_ORDER_TABLE_COLUMNS, AdminOrderTableColumnId,
+    AdminProductTableColumnConfig, ALL_ADMIN_PRODUCT_TABLE_COLUMNS, AdminProductTableColumnId,
     AdminStaffNamesPackedBy, AdminStaffNamePackedBy, AdminStaffNamesDeliveredBy, AdminStaffNameDeliveredBy,
     AdminOrderManagementSubTab, ADMIN_ORDER_MANAGEMENT_SUB_TABS,
     AdminUserManagementSubTab, ADMIN_USER_MANAGEMENT_SUB_TABS,
     CustomerType, CustomerTypes, DEFAULT_CUSTOMER_TYPE,
     AssignmentPriorityModalInfo,
-    AppUser
+    AppUser, ModificationRequest, ModificationRequestStatus
 } from './types';
 import { MOCK_PRODUCTS, ISSUE_TYPES } from './constants';
 
@@ -118,6 +119,7 @@ export const App: React.FC = () => {
   const [showAddItemsSection, setShowAddItemsSection] = useState(false);
   const [isModificationConfirmModalOpen, setIsModificationConfirmModalOpen] = useState(false);
   const [orderIdPendingModification, setOrderIdPendingModification] = useState<string | null>(null);
+  const [orderTimerText, setOrderTimerText] = useState<string>('');
   
   // Order modification summary modal state
   const [isModificationSummaryModalOpen, setIsModificationSummaryModalOpen] = useState(false);
@@ -280,6 +282,37 @@ export const App: React.FC = () => {
   // State for Credit Limit Modal
   const [isCreditLimitModalOpen, setIsCreditLimitModalOpen] = useState<boolean>(false);
   const [creditLimitModalOrder, setCreditLimitModalOrder] = useState<Order | null>(null);
+
+  // State for Shipping Date Confirmation Modal
+  const [isShippingDateConfirmModalOpen, setIsShippingDateConfirmModalOpen] = useState<boolean>(false);
+  const [shippingDateConfirmData, setShippingDateConfirmData] = useState<{
+    selectedDate: Date;
+    orderIds: string[];
+    shopName: string;
+    context: 'inline' | 'bulk' | 'quick';
+    originalData?: any; // Store original update data for bulk/quick
+  } | null>(null);
+
+  // State for Pending Modification Request Modal
+
+  // Define the reusable function for checking modification requests
+  const hasAnyModificationRequests = (order: Order): boolean => {
+    const hasModificationRequests = (order.modificationRequests?.length || 0) > 0;
+    const hasProcessedRequests = (order.processedModificationRequests?.length || 0) > 0;
+    return hasModificationRequests || hasProcessedRequests;
+  };
+
+  // Helper function to count total modification requests
+  const getTotalModificationRequestsCount = (order: Order): number => {
+    return (order.modificationRequests?.length || 0) + (order.processedModificationRequests?.length || 0);
+  };
+
+  // Helper function to check if order has no modification requests (for legacy checks)
+  const hasNoModificationRequests = (order: Order): boolean => {
+    return !hasAnyModificationRequests(order);
+  };
+  const [isPendingModificationModalOpen, setIsPendingModificationModalOpen] = useState<boolean>(false);
+  const [pendingModificationOrder, setPendingModificationOrder] = useState<Order | null>(null);
 
   // State for Shop Organization Management Modal
   const [isShopOrgManagementModalOpen, setIsShopOrgManagementModalOpen] = useState<boolean>(false);
@@ -472,6 +505,27 @@ export const App: React.FC = () => {
   const [newOrganizationForm, setNewOrganizationForm] = useState({
     name: '',
     type: 'external' as 'external' | 'internal'
+  });
+
+  // Admin Product Catalog State
+  const [visibleAdminProductColumns, setVisibleAdminProductColumns] = useState<AdminProductTableColumnId[]>(
+    ALL_ADMIN_PRODUCT_TABLE_COLUMNS.filter(col => col.defaultVisible).map(col => col.id)
+  );
+  const [isProductColumnSelectModalOpen, setIsProductColumnSelectModalOpen] = useState(false);
+  const [adminSelectedProductIds, setAdminSelectedProductIds] = useState<string[]>([]);
+  
+  // Product Management Modal States
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [newProductForm, setNewProductForm] = useState<Partial<Product>>({
+    name: '',
+    description: '',
+    price: 0,
+    imageUrl: '',
+    category: '',
+    uom: '',
+    vendor: '',
   });
 
   // Singapore neighbourhoods for shipment regions
@@ -1031,6 +1085,43 @@ export const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('currentAdminUserManagementSubTab', JSON.stringify(currentAdminUserManagementSubTab)); }, [currentAdminUserManagementSubTab]);
   useEffect(() => { localStorage.setItem('allAppUsers', JSON.stringify(allAppUsers)); }, [allAppUsers]);
 
+  // Timer for order modification confirmation modal
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (isModificationConfirmModalOpen && orderIdPendingModification) {
+      const order = orders.find(o => o.id === orderIdPendingModification);
+      if (order) {
+        const updateTimer = () => {
+          const orderCreatedTime = new Date(order.orderDate);
+          const now = new Date();
+          const diffMs = now.getTime() - orderCreatedTime.getTime();
+          
+          const hours = Math.floor(diffMs / (1000 * 60 * 60));
+          const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+          
+          const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          setOrderTimerText(formattedTime);
+        };
+        
+        // Initial update
+        updateTimer();
+        
+        // Update every second
+        interval = setInterval(updateTimer, 1000);
+      }
+    } else {
+      setOrderTimerText('');
+    }
+    
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isModificationConfirmModalOpen, orderIdPendingModification, orders]);
+
   // Auto-focus search input when modification page loads
   useEffect(() => {
     if (customerCurrentPage === Page.MODIFY_ORDER && showAddItemsSection && modificationSearchInputRef.current) {
@@ -1430,30 +1521,81 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Calculate modification summary
+    // Note: UI now prevents modification of items with pending requests,
+    // so this server-side validation is no longer needed
+
+    // Calculate modification request summary
     const originalItems = orderBeingModified.items;
     const originalTotal = orderBeingModified.totalPrice;
     const priceChange = newTotal - originalTotal;
     
-    let modificationSummary = '';
+    let requestSummary = '';
     if (originalItems.length !== newItems.length) {
-      modificationSummary += `Items changed from ${originalItems.length} to ${newItems.length}. `;
+      requestSummary += `Items changed from ${originalItems.length} to ${newItems.length}. `;
     }
     if (priceChange !== 0) {
-      modificationSummary += `Total changed by $${Math.abs(priceChange).toFixed(2)} (${priceChange > 0 ? 'increase' : 'decrease'})`;
+      requestSummary += `Total changed by $${Math.abs(priceChange).toFixed(2)} (${priceChange > 0 ? 'increase' : 'decrease'})`;
     }
 
-    // Update the existing order with modification tracking
+    // Create modification request instead of immediately modifying the order
+    // Calculate change information for each item
+    const originalItemsMap = new Map(originalItems.map(item => [item.id, item]));
+    const newItemsMap = new Map(newItems.map(item => [item.id, item]));
+    
+    // Find items that were removed (in original but not in new)
+    const removedItems = originalItems.filter(originalItem => !newItemsMap.has(originalItem.id));
+    
+    const modificationRequest: ModificationRequest = {
+      id: `mod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Generate unique ID
+      requestedItems: newItems.map(item => {
+        const originalItem = originalItemsMap.get(item.id);
+        let changeType: 'added' | 'removed' | 'quantityChanged';
+        let originalQuantity: number | undefined;
+        
+        if (!originalItem) {
+          // Item is being added
+          changeType = 'added';
+          originalQuantity = undefined; // Was not in original order
+        } else if (originalItem.quantity !== item.quantity) {
+          // Quantity is being changed
+          changeType = 'quantityChanged';
+          originalQuantity = originalItem.quantity;
+        } else {
+          // This shouldn't happen in normal flow, but handle it
+          changeType = 'quantityChanged';
+          originalQuantity = originalItem.quantity;
+        }
+        
+        return {
+          ...item,
+          itemStatus: 'pending' as ModificationRequestStatus,
+          processedDate: undefined,
+          processedBy: undefined,
+          changeType,
+          originalQuantity
+        };
+      }),
+      requestedTotalPrice: newTotal,
+      requestDate: new Date().toISOString(),
+      requestSummary: requestSummary || 'Order modification requested',
+      status: 'pending',
+      // Store removed items information for processing later (don't put in processedRemovedItems yet)
+      pendingRemovedItems: removedItems.map(item => ({
+        productId: item.id,
+        productName: item.name,
+        originalQuantity: item.quantity,
+        unitPrice: item.price,
+        changeType: 'removed' as const
+      }))
+    };
+
+    // Get existing requests and add the new one
+    const existingRequests = orderBeingModified.modificationRequests || [];
+    
+    // Update the order with new modification request added to array
     const updatedOrder: Order = {
       ...orderBeingModified,
-      items: newItems,
-      totalPrice: newTotal,
-      status: 'To select date', // Reset status for re-processing
-      // Modification tracking
-      isModified: true,
-      originalTotalPrice: originalTotal,
-      modificationDate: new Date().toISOString(),
-      modificationSummary: modificationSummary || 'Order items modified'
+      modificationRequests: [...existingRequests, modificationRequest]
     };
 
     const newOrders = orders.map(order => 
@@ -1469,7 +1611,7 @@ export const App: React.FC = () => {
     setModificationSearchQuery('');
     setShowAddItemsSection(false);
     
-    showToast(`Order ${orderBeingModified.id} modified successfully!`);
+    showToast(`Modification request for Order ${orderBeingModified.id} submitted successfully!`);
     setCustomerCurrentPage(Page.ORDER_HISTORY);
   };
 
@@ -1477,6 +1619,477 @@ export const App: React.FC = () => {
     // Orders can be modified if they haven't been shipped or delivered
     const nonModifiableStatuses: OrderStatus[] = ['Shipped', 'Delivered', 'Cancelled'];
     return !nonModifiableStatuses.includes(order.status);
+  };
+
+  const handleAcceptModificationRequest = (orderId: string, requestId?: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || !order.modificationRequests || order.modificationRequests.length === 0) {
+      showToast('No modification requests found');
+      return;
+    }
+
+    // If no specific request ID provided, accept the most recent pending request
+    const modificationRequest = requestId 
+      ? order.modificationRequests.find(req => req.id === requestId && req.status === 'pending')
+      : order.modificationRequests.find(req => req.status === 'pending');
+
+    if (!modificationRequest) {
+      showToast('No pending modification request found');
+      return;
+    }
+    
+    // Create the processed request with moved removed items
+    const processedRequest: ModificationRequest = {
+      ...modificationRequest,
+      status: 'accepted' as ModificationRequestStatus,
+      processedDate: new Date().toISOString(),
+      processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF,
+      // Move pending removed items to processed with 'accepted' status
+      processedRemovedItems: modificationRequest.pendingRemovedItems?.map(item => ({
+        ...item,
+        status: 'accepted' as ModificationRequestStatus,
+        processedDate: new Date().toISOString(),
+        processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+      })) || [],
+      // Clear pending removed items since they're now processed
+      pendingRemovedItems: []
+    };
+
+    // Remove the processed request from pending and add to processed
+    const remainingPendingRequests = order.modificationRequests.filter(req => req.id !== modificationRequest.id);
+    const existingProcessedRequests = order.processedModificationRequests || [];
+
+    // Properly merge the modification request with the existing order
+    const originalItems = order.items;
+    const requestedItems = modificationRequest.requestedItems;
+    
+    // Start with original items
+    let finalItems = [...originalItems];
+    
+    // Find items that were removed (in original but not in requested)
+    const requestedItemIds = new Set(requestedItems.map(item => item.id));
+    finalItems = finalItems.filter(item => requestedItemIds.has(item.id));
+    
+    // Process requested items
+    requestedItems.forEach(requestedItem => {
+      const existingItemIndex = finalItems.findIndex(item => item.id === requestedItem.id);
+      
+      if (existingItemIndex !== -1) {
+        // Item exists - update quantity
+        finalItems[existingItemIndex] = {
+          ...finalItems[existingItemIndex],
+          quantity: requestedItem.quantity
+        };
+      } else {
+        // Item doesn't exist - add as new item
+        finalItems.push({
+          id: requestedItem.id,
+          name: requestedItem.name,
+          description: requestedItem.description,
+          price: requestedItem.price,
+          imageUrl: requestedItem.imageUrl,
+          category: requestedItem.category,
+          uom: requestedItem.uom,
+          quantity: requestedItem.quantity
+        });
+      }
+    });
+    
+    // Calculate the new total price based on final items
+    const newTotalPrice = finalItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+
+    const updatedOrder: Order = {
+      ...order,
+      items: finalItems,
+      totalPrice: newTotalPrice,
+      status: 'To select date', // Reset status for re-processing
+      isModified: true,
+      originalTotalPrice: order.totalPrice,
+      modificationDate: new Date().toISOString(),
+      modificationSummary: modificationRequest.requestSummary,
+      modificationRequests: remainingPendingRequests,
+      processedModificationRequests: [...existingProcessedRequests, processedRequest]
+    };
+
+    setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+    showToast(`Modification request for Order ${orderId} accepted successfully!`);
+  };
+
+  const handleDenyModificationRequest = (orderId: string, requestId?: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || !order.modificationRequests || order.modificationRequests.length === 0) {
+      showToast('No modification requests found');
+      return;
+    }
+
+    // If no specific request ID provided, deny the most recent pending request
+    const modificationRequest = requestId 
+      ? order.modificationRequests.find(req => req.id === requestId && req.status === 'pending')
+      : order.modificationRequests.find(req => req.status === 'pending');
+
+    if (!modificationRequest) {
+      showToast('No pending modification request found');
+      return;
+    }
+    
+    // Create the processed request with moved removed items
+    const processedRequest: ModificationRequest = {
+      ...modificationRequest,
+      status: 'denied' as ModificationRequestStatus,
+      processedDate: new Date().toISOString(),
+      processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF,
+      // Move pending removed items to processed with 'denied' status
+      processedRemovedItems: modificationRequest.pendingRemovedItems?.map(item => ({
+        ...item,
+        status: 'denied' as ModificationRequestStatus,
+        processedDate: new Date().toISOString(),
+        processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+      })) || [],
+      // Clear pending removed items since they're now processed
+      pendingRemovedItems: []
+    };
+
+    // Remove the processed request from pending and add to processed
+    const remainingPendingRequests = order.modificationRequests.filter(req => req.id !== modificationRequest.id);
+    const existingProcessedRequests = order.processedModificationRequests || [];
+
+    const updatedOrder: Order = {
+      ...order,
+      modificationRequests: remainingPendingRequests,
+      processedModificationRequests: [...existingProcessedRequests, processedRequest]
+    };
+
+    setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+    showToast(`Modification request for Order ${orderId} denied.`);
+  };
+
+  // New handlers for individual product processing
+  const handleAcceptProductModificationRequest = (orderId: string, requestId: string, productId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || !order.modificationRequests || order.modificationRequests.length === 0) {
+      showToast('No modification requests found');
+      return;
+    }
+
+    const modificationRequest = order.modificationRequests.find(req => req.id === requestId);
+    if (!modificationRequest) {
+      showToast('Modification request not found');
+      return;
+    }
+
+    // Check if this is a removed item (not in requestedItems)
+    const isRemovedItem = !modificationRequest.requestedItems.find(item => item.id === productId);
+    
+    let updatedRequests;
+    
+    if (isRemovedItem) {
+      // For removed items, we need to track them separately
+      // Add processed removed items to a special tracking array
+      updatedRequests = order.modificationRequests.map(req => 
+        req.id === requestId 
+          ? {
+              ...req,
+              processedRemovedItems: [
+                ...(req.processedRemovedItems || []),
+                {
+                  productId,
+                  status: 'accepted' as ModificationRequestStatus,
+                  processedDate: new Date().toISOString(),
+                  processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+                }
+              ]
+            }
+          : req
+      );
+    } else {
+      // Update the specific product status to accepted for regular items
+      updatedRequests = order.modificationRequests.map(req => 
+        req.id === requestId 
+          ? {
+              ...req,
+              requestedItems: req.requestedItems.map(item => 
+                item.id === productId 
+                  ? {
+                      ...item,
+                      itemStatus: 'accepted' as ModificationRequestStatus,
+                      processedDate: new Date().toISOString(),
+                      processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+                    }
+                  : item
+              )
+            }
+          : req
+      );
+    }
+
+    // Apply accepted changes immediately to the order items
+    const updatedRequest = updatedRequests.find(req => req.id === requestId)!;
+    
+    // Get the current order items (which may have been modified by previous acceptances)
+    let currentItems = [...order.items];
+    
+    // Apply this specific acceptance to the order
+    if (isRemovedItem) {
+      // Remove this item from the order
+      currentItems = currentItems.filter(item => item.id !== productId);
+    } else {
+      // Find the requested item that was just accepted
+      const acceptedItem = updatedRequest.requestedItems.find(item => item.id === productId);
+      if (acceptedItem && acceptedItem.itemStatus === 'accepted') {
+        const existingItemIndex = currentItems.findIndex(item => item.id === productId);
+        
+        if (existingItemIndex !== -1) {
+          // Item exists - update quantity
+          currentItems[existingItemIndex] = {
+            ...currentItems[existingItemIndex],
+            quantity: acceptedItem.quantity
+          };
+        } else {
+          // Item doesn't exist - add as new item
+          currentItems.push({
+            id: acceptedItem.id,
+            name: acceptedItem.name,
+            description: acceptedItem.description,
+            price: acceptedItem.price,
+            imageUrl: acceptedItem.imageUrl,
+            category: acceptedItem.category,
+            uom: acceptedItem.uom,
+            quantity: acceptedItem.quantity
+          });
+        }
+      }
+    }
+    
+    // Calculate the new total price
+    const newTotalPrice = currentItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+    
+    // Check if all items in this request have been processed
+    const allRegularItemsProcessed = updatedRequest.requestedItems.every(item => item.itemStatus !== 'pending');
+    
+    // Count processed removed items
+    const originalItems = order.items;
+    const requestedItems = updatedRequest.requestedItems;
+    const removedItemIds = originalItems
+      .filter(originalItem => !requestedItems.find(r => r.id === originalItem.id))
+      .map(item => item.id);
+    
+    const processedRemovedItems = updatedRequest.processedRemovedItems || [];
+    const allRemovedItemsProcessed = removedItemIds.every(removedId => 
+      processedRemovedItems.find(processed => processed.productId === removedId)
+    );
+    
+    const allItemsProcessed = allRegularItemsProcessed && allRemovedItemsProcessed;
+    
+    if (allItemsProcessed) {
+      // All items processed - move request to processed array
+      const allRegularAccepted = updatedRequest.requestedItems.every(item => item.itemStatus === 'accepted');
+      const allRegularDenied = updatedRequest.requestedItems.every(item => item.itemStatus === 'denied');
+      const allRemovedAccepted = processedRemovedItems.every(item => item.status === 'accepted');
+      const allRemovedDenied = processedRemovedItems.every(item => item.status === 'denied');
+      
+      const allAccepted = allRegularAccepted && allRemovedAccepted;
+      const allDenied = allRegularDenied && allRemovedDenied;
+
+      // Create the final processed request
+      const processedRequest: ModificationRequest = {
+        ...updatedRequest,
+        status: allAccepted ? 'accepted' as ModificationRequestStatus : 
+                allDenied ? 'denied' as ModificationRequestStatus :
+                'accepted' as ModificationRequestStatus, // Mixed - consider accepted if at least one accepted
+        processedDate: new Date().toISOString(),
+        processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+      };
+
+      // Remove the processed request from pending and add to processed
+      const remainingPendingRequests = updatedRequests.filter(req => req.id !== requestId);
+      const existingProcessedRequests = order.processedModificationRequests || [];
+
+      const updatedOrder: Order = {
+        ...order,
+        items: currentItems,
+        totalPrice: newTotalPrice,
+        status: 'To select date', // Reset status for re-processing
+        isModified: true,
+        originalTotalPrice: order.originalTotalPrice || order.totalPrice,
+        modificationDate: new Date().toISOString(),
+        modificationSummary: updatedRequest.requestSummary,
+        modificationRequests: remainingPendingRequests,
+        processedModificationRequests: [...existingProcessedRequests, processedRequest]
+      };
+      setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      showToast(`Request processing complete for Order ${orderId}!`);
+    } else {
+      // Not all items processed yet, but apply this accepted change immediately
+      const updatedOrder: Order = {
+        ...order,
+        items: currentItems,
+        totalPrice: newTotalPrice,
+        status: 'To select date', // Reset status for re-processing
+        isModified: true,
+        originalTotalPrice: order.originalTotalPrice || order.totalPrice,
+        modificationDate: new Date().toISOString(),
+        modificationSummary: updatedRequest.requestSummary,
+        modificationRequests: updatedRequests
+      };
+      setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      showToast(`Product accepted and applied to Order ${orderId}. Waiting for other products to be processed.`);
+    }
+  };
+
+  const handleDenyProductModificationRequest = (orderId: string, requestId: string, productId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || !order.modificationRequests || order.modificationRequests.length === 0) {
+      showToast('No modification requests found');
+      return;
+    }
+
+    const modificationRequest = order.modificationRequests.find(req => req.id === requestId);
+    if (!modificationRequest) {
+      showToast('Modification request not found');
+      return;
+    }
+
+    // Check if this is a removed item (not in requestedItems)
+    const isRemovedItem = !modificationRequest.requestedItems.find(item => item.id === productId);
+    
+    let updatedRequests;
+    
+    if (isRemovedItem) {
+      // For removed items, we need to track them separately
+      updatedRequests = order.modificationRequests.map(req => 
+        req.id === requestId 
+          ? {
+              ...req,
+              processedRemovedItems: [
+                ...(req.processedRemovedItems || []),
+                {
+                  productId,
+                  status: 'denied' as ModificationRequestStatus,
+                  processedDate: new Date().toISOString(),
+                  processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+                }
+              ]
+            }
+          : req
+      );
+    } else {
+      // Update the specific product status to denied for regular items
+      updatedRequests = order.modificationRequests.map(req => 
+        req.id === requestId 
+          ? {
+              ...req,
+              requestedItems: req.requestedItems.map(item => 
+                item.id === productId 
+                  ? {
+                      ...item,
+                      itemStatus: 'denied' as ModificationRequestStatus,
+                      processedDate: new Date().toISOString(),
+                      processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+                    }
+                  : item
+              )
+            }
+          : req
+      );
+    }
+
+    // Check if all items in this request have been processed
+    const updatedRequest = updatedRequests.find(req => req.id === requestId)!;
+    
+    // Count processed regular items
+    const allRegularItemsProcessed = updatedRequest.requestedItems.every(item => item.itemStatus !== 'pending');
+    
+    // Count processed removed items
+    const originalItems = order.items;
+    const requestedItems = updatedRequest.requestedItems;
+    const removedItemIds = originalItems
+      .filter(originalItem => !requestedItems.find(r => r.id === originalItem.id))
+      .map(item => item.id);
+    
+    const processedRemovedItems = updatedRequest.processedRemovedItems || [];
+    const allRemovedItemsProcessed = removedItemIds.every(removedId => 
+      processedRemovedItems.find(processed => processed.productId === removedId)
+    );
+    
+    const allItemsProcessed = allRegularItemsProcessed && allRemovedItemsProcessed;
+    
+    if (allItemsProcessed) {
+      // Update overall request status
+      const allRegularAccepted = updatedRequest.requestedItems.every(item => item.itemStatus === 'accepted');
+      const allRegularDenied = updatedRequest.requestedItems.every(item => item.itemStatus === 'denied');
+      const allRemovedAccepted = processedRemovedItems.every(item => item.status === 'accepted');
+      const allRemovedDenied = processedRemovedItems.every(item => item.status === 'denied');
+      
+      const allAccepted = allRegularAccepted && allRemovedAccepted;
+      const allDenied = allRegularDenied && allRemovedDenied;
+
+      // Create the final processed request
+      const processedRequest: ModificationRequest = {
+        ...updatedRequest,
+        status: allAccepted ? 'accepted' as ModificationRequestStatus : 
+                allDenied ? 'denied' as ModificationRequestStatus :
+                'accepted' as ModificationRequestStatus, // Mixed - consider accepted if at least one accepted
+        processedDate: new Date().toISOString(),
+        processedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF
+      };
+
+      // Remove the processed request from pending and add to processed
+      const remainingPendingRequests = updatedRequests.filter(req => req.id !== requestId);
+      const existingProcessedRequests = order.processedModificationRequests || [];
+
+      const updatedOrder: Order = {
+        ...order,
+        modificationRequests: remainingPendingRequests,
+        processedModificationRequests: [...existingProcessedRequests, processedRequest]
+      };
+      setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      showToast(`Product denied. Request processing complete.`);
+    } else {
+      // Not all items processed yet, just update the requests
+      const updatedOrder: Order = {
+        ...order,
+        modificationRequests: updatedRequests
+      };
+      setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      showToast(`Product denied. Waiting for other products to be processed.`);
+    }
+  };
+
+  // Helper function to get modification request status for an order
+  const getModificationRequestStatus = (order: Order) => {
+    const pendingRequests = order.modificationRequests || [];
+    const processedRequests = order.processedModificationRequests || [];
+    
+    if (pendingRequests.length > 0 && processedRequests.length > 0) {
+      return {
+        type: 'mixed' as const,
+        pendingCount: pendingRequests.length,
+        processedCount: processedRequests.length,
+        totalCount: pendingRequests.length + processedRequests.length,
+        borderColor: 'border-l-purple-500',
+        iconColor: 'text-purple-600'
+      };
+    } else if (pendingRequests.length > 0) {
+      return {
+        type: 'pending' as const,
+        pendingCount: pendingRequests.length,
+        processedCount: 0,
+        totalCount: pendingRequests.length,
+        borderColor: 'border-l-orange-500',
+        iconColor: 'text-orange-600'
+      };
+    } else if (processedRequests.length > 0) {
+      return {
+        type: 'processed' as const,
+        pendingCount: 0,
+        processedCount: processedRequests.length,
+        totalCount: processedRequests.length,
+        borderColor: 'border-l-blue-500',
+        iconColor: 'text-blue-600'
+      };
+    }
+    
+    return null;
   };
 
   const handleUseTemplate = (templateId: string) => {
@@ -2312,6 +2925,17 @@ const checkAndHandleAssignmentPriority = (
             }
         }
     }
+    
+    // Validate shipping date if being updated (only if not clearing the date)
+    if (applyUpdateFlags.shippingDate && updateFieldsState.shippingDate) {
+      if (!validateShippingDate(updateFieldsState.shippingDate, adminSelectedOrderIds, 'bulk', { 
+        fields: updateFieldsState, 
+        flags: applyUpdateFlags 
+      })) {
+        return; // Validation failed, modal shown, wait for user decision
+      }
+    }
+    
     // If not applying billedBy, or if priority check passes (or not applicable), proceed with bulk update
     performBulkUpdate(adminSelectedOrderIds, updateFieldsState, applyUpdateFlags);
   };
@@ -2339,10 +2963,19 @@ const checkAndHandleAssignmentPriority = (
                  updatedOrder.status = 'Order delegated for billing';
             }
           }
-          if (flags.shippingDate && fields.shippingDate) {
-            updatedOrder.shippingDate = fields.shippingDate.toISOString();
-            if (updatedOrder.status === 'To select date') {
-                updatedOrder.status = 'To pick person for billing in Insmart';
+          if (flags.shippingDate) {
+            if (fields.shippingDate) {
+              updatedOrder.shippingDate = fields.shippingDate.toISOString();
+              if (updatedOrder.status === 'To select date') {
+                  updatedOrder.status = 'To pick person for billing in Insmart';
+              }
+            } else {
+              // Clearing shipping date
+              updatedOrder.shippingDate = undefined;
+              // If clearing shipping date and order was 'To pick person for billing in Insmart', revert to 'To select date'
+              if (updatedOrder.status === 'To pick person for billing in Insmart' && !updatedOrder.billedInInsmartBy) {
+                  updatedOrder.status = 'To select date';
+              }
             }
           }
           if (flags.packedBy) updatedOrder.packedBy = fields.packedBy;
@@ -2396,8 +3029,314 @@ const checkAndHandleAssignmentPriority = (
     if (isNaN(date.getTime())) return 'Invalid Date';
     return `${String(date.getDate()).padStart(2, '0')} ${monthNamesShort[date.getMonth()]} ${date.getFullYear()}`;
   };
+  
+  const formatDateTimeForPdf = (isoString?: string | Date): string => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    const timeString = date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      hour12: true 
+    });
+    return `${String(date.getDate()).padStart(2, '0')} ${monthNamesShort[date.getMonth()]} ${date.getFullYear()}, ${timeString}`;
+  };
+  
   const monthNamesShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  // Generate PDF Changes Format
+  const generatePdfChangesFormat = (order: Order): { changeCount: number; changesText: string; removedItems: string[] } => {
+    let changeCount = 0;
+    let regularChanges: string[] = [];
+    let removedChanges: string[] = [];
+
+    // Check if it's legacy modification or new modification request system
+            if (order.isModified && hasNoModificationRequests(order)) {
+      // Legacy modification - use existing modificationSummary but adapt format
+      if (order.modificationSummary) {
+        // For legacy, we'll use the existing summary as a fallback since we don't have detailed item tracking
+        // Try to extract some basic info but keep it simple
+        const removedMatch = order.modificationSummary.match(/(\d+) item\(s\) removed/);
+        const addedMatch = order.modificationSummary.match(/(\d+) item\(s\) added/);
+        const quantityMatch = order.modificationSummary.match(/(\d+) quantity adjustment\(s\)/);
+        
+        if (addedMatch) {
+          changeCount += parseInt(addedMatch[1]);
+          regularChanges.push(`${addedMatch[1]} item(s) added`);
+        }
+        if (quantityMatch) {
+          changeCount += parseInt(quantityMatch[1]);
+          regularChanges.push(`${quantityMatch[1]} quantity change(s)`);
+        }
+        if (removedMatch) {
+          changeCount += parseInt(removedMatch[1]);
+          removedChanges.push(`${removedMatch[1]} item(s) removed`);
+        }
+        
+        // If no matches found, just use the original summary
+        if (changeCount === 0) {
+          regularChanges.push(order.modificationSummary);
+          changeCount = 1; // Default to 1 if we can't parse
+        }
+      }
+    } else {
+      // New modification request system - use current order items to get proper item numbers
+      const processedRequests = order.processedModificationRequests || [];
+      const acceptedRequests = processedRequests.filter(req => req.status === 'accepted');
+      
+      acceptedRequests.forEach(request => {
+        const currentItems = order.items;
+        const requestedItems = request.requestedItems.filter(item => item.itemStatus === 'accepted');
+        
+        // We need to reconstruct what the order looked like before this modification
+        // to properly identify additions vs quantity changes
+        
+        // For each accepted requested item, check if it was already in the order before modification
+        requestedItems.forEach(requestedItem => {
+          const itemIndex = currentItems.findIndex(item => item.id === requestedItem.id);
+          if (itemIndex !== -1) {
+            const itemNumber = itemIndex + 1; // PDF uses 1-based numbering
+            
+            // Check if this was likely a new addition or quantity change
+            // We can try to parse the request summary to understand better
+            const requestSummary = request.requestSummary;
+            
+            if (requestSummary.includes('Items changed from') && requestSummary.includes('quantity adjustment')) {
+              regularChanges.push(`#${itemNumber} quantity change`);
+            } else if (requestSummary.includes('item(s) added')) {
+              regularChanges.push(`#${itemNumber} added to order`);
+            } else {
+              // Default case - assume quantity change if item exists
+              regularChanges.push(`#${itemNumber} quantity change`);
+            }
+            changeCount++;
+          }
+        });
+        
+        // Handle removed items - use stored product names
+        const processedRemovedItems = request.processedRemovedItems || [];
+        processedRemovedItems.forEach(removedItem => {
+          if (removedItem.status === 'accepted') {
+            // Use stored product name or fallback to product lookup
+            const itemName = removedItem.productName || 
+                           products.find(p => p.id === removedItem.productId)?.name || 
+                           `Product ${removedItem.productId}`;
+            removedChanges.push(`${itemName} removed`);
+            changeCount++;
+          }
+        });
+      });
+      
+      // If no specific changes were identified but we have accepted requests, show general info
+      if (changeCount === 0 && acceptedRequests.length > 0) {
+        regularChanges.push(`Order modified via ${acceptedRequests.length} request(s)`);
+        changeCount = acceptedRequests.length;
+      }
+    }
+
+    // Combine regular changes and removed changes (removed items at the end)
+    const allChanges = [...regularChanges, ...removedChanges];
+    const changesText = allChanges.join(', ');
+    return { changeCount, changesText, removedItems: removedChanges };
+  };
+
+  // Shipping Date Validation Function
+  const validateShippingDate = (selectedDate: Date, orderIds: string[], context: 'inline' | 'bulk' | 'quick', originalData?: any): boolean => {
+    const ordersToCheck = orders.filter(order => orderIds.includes(order.id));
+    
+    for (const order of ordersToCheck) {
+      const invoiceRequestDate = order.invoiceDate || order.orderDate;
+      const invoiceDate = new Date(invoiceRequestDate);
+      
+      // Remove time components for date-only comparison
+      const shippingDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+      
+      if (shippingDateOnly < invoiceDateOnly) {
+        // Shipping date is before invoice request date - show confirmation modal
+        const shopName = order.shopLocation || 'the customer';
+        
+        setShippingDateConfirmData({
+          selectedDate,
+          orderIds,
+          shopName,
+          context,
+          originalData
+        });
+        setIsShippingDateConfirmModalOpen(true);
+        return false; // Don't proceed with update yet
+      }
+    }
+    
+    return true; // All dates are valid, proceed with update
+  };
+
+  // Check for Pending Modification Requests Function
+  const hasPendingModificationRequests = (order: Order): boolean => {
+    // Only check for requests that actually have a 'pending' status
+    const pendingRequests = order.modificationRequests?.filter(req => req.status === 'pending') || [];
+    
+    // For each pending request, explicitly check all 4 types of modifications
+    for (const request of pendingRequests) {
+      const originalItems = order.items;
+      const requestedItems = request.requestedItems;
+      const processedRemovedItems = request.processedRemovedItems || [];
+      
+      // Create maps for easier lookup
+      const originalItemsMap = new Map(originalItems.map(item => [item.id, item]));
+      const requestedItemsMap = new Map(requestedItems.map(item => [item.id, item]));
+      
+      // 1. Check for pending ADDED ITEMS (new items that didn't exist in original order)
+      const hasPendingAddedItems = requestedItems.some(requestedItem => {
+        const isNewItem = !originalItemsMap.has(requestedItem.id);
+        const isPending = requestedItem.itemStatus === 'pending';
+        return isNewItem && isPending;
+      });
+      
+      // 2. Check for pending REMOVED ITEMS (original items not in requested items)
+      const removedItemIds = originalItems
+        .filter(originalItem => !requestedItemsMap.has(originalItem.id))
+        .map(item => item.id);
+      
+      const hasPendingRemovedItems = removedItemIds.some(removedId => 
+        !processedRemovedItems.find(processed => processed.productId === removedId)
+      );
+      
+      // 3. Check for pending INCREASED QUANTITY items (existing items with higher quantity)
+      const hasPendingIncreasedQuantity = requestedItems.some(requestedItem => {
+        const originalItem = originalItemsMap.get(requestedItem.id);
+        const isExistingItem = !!originalItem;
+        const hasIncreasedQuantity = originalItem && requestedItem.quantity > originalItem.quantity;
+        const isPending = requestedItem.itemStatus === 'pending';
+        return isExistingItem && hasIncreasedQuantity && isPending;
+      });
+      
+      // 4. Check for pending DECREASED QUANTITY items (existing items with lower quantity)
+      const hasPendingDecreasedQuantity = requestedItems.some(requestedItem => {
+        const originalItem = originalItemsMap.get(requestedItem.id);
+        const isExistingItem = !!originalItem;
+        const hasDecreasedQuantity = originalItem && requestedItem.quantity < originalItem.quantity;
+        const isPending = requestedItem.itemStatus === 'pending';
+        return isExistingItem && hasDecreasedQuantity && isPending;
+      });
+      
+      // If this request has ANY of the 4 types of pending modifications, return true
+      if (hasPendingAddedItems || hasPendingRemovedItems || hasPendingIncreasedQuantity || hasPendingDecreasedQuantity) {
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
+  // Calculate total number of changes in pending modification requests
+  const calculatePendingChangesCount = (order: Order): number => {
+    const pendingRequests = order.modificationRequests?.filter(req => req.status === 'pending') || [];
+    let totalChanges = 0;
+
+    pendingRequests.forEach(request => {
+      const originalItems = order.items;
+      const requestedItems = request.requestedItems;
+      
+      // Create maps for easier lookup
+      const originalItemsMap = new Map(originalItems.map(item => [item.id, item]));
+      const requestedItemsMap = new Map(requestedItems.map(item => [item.id, item]));
+      
+      // Count added items (in requested but not in original)
+      requestedItems.forEach(requestedItem => {
+        if (!originalItemsMap.has(requestedItem.id)) {
+          totalChanges++; // New item added
+        }
+      });
+      
+      // Count removed items (in original but not in requested)
+      originalItems.forEach(originalItem => {
+        if (!requestedItemsMap.has(originalItem.id)) {
+          totalChanges++; // Item removed
+        }
+      });
+      
+      // Count quantity changes (items that exist in both but with different quantities)
+      requestedItems.forEach(requestedItem => {
+        const originalItem = originalItemsMap.get(requestedItem.id);
+        if (originalItem && originalItem.quantity !== requestedItem.quantity) {
+          totalChanges++; // Quantity changed
+        }
+      });
+    });
+
+    return totalChanges;
+  };
+
+  // Helper functions for PDF enhancement features
+  const getItemModificationInfo = (order: Order, itemId: string): { 
+    isAddition: boolean; 
+    originalQuantity: number | null; 
+    hasQuantityChange: boolean;
+  } => {
+    let isAddition = false;
+    let originalQuantity: number | null = null;
+    let hasQuantityChange = false;
+    
+    // Check processed modification requests for this item
+    const processedRequests = order.processedModificationRequests || [];
+    const acceptedRequests = processedRequests.filter(req => req.status === 'accepted');
+    
+    if (acceptedRequests.length === 0) {
+      return { isAddition, originalQuantity, hasQuantityChange };
+    }
+
+    // Get the current item 
+    const currentItem = order.items.find(item => item.id === itemId);
+    if (!currentItem) {
+      return { isAddition, originalQuantity, hasQuantityChange };
+    }
+
+    // Use the stored change information from modification requests
+    for (const request of acceptedRequests) {
+      const requestedItems = request.requestedItems.filter(item => item.itemStatus === 'accepted');
+      const requestedItem = requestedItems.find(item => item.id === itemId);
+      
+      if (requestedItem && requestedItem.changeType) {
+        // Use the stored change information
+        switch (requestedItem.changeType) {
+          case 'added':
+            isAddition = true;
+            originalQuantity = 0;
+            hasQuantityChange = false;
+            break;
+          case 'quantityChanged':
+            isAddition = false;
+            hasQuantityChange = true;
+            originalQuantity = requestedItem.originalQuantity || null;
+            break;
+          case 'removed':
+            // This shouldn't happen since the item is in the current order
+            // but handle it just in case
+            isAddition = false;
+            hasQuantityChange = false;
+            originalQuantity = requestedItem.originalQuantity || null;
+            break;
+        }
+        break;
+      }
+    }
+    
+    return { isAddition, originalQuantity, hasQuantityChange };
+  };
+
+
+
+  // PDF View Validation Handler
+  const handleViewOrderPdf = (order: Order) => {
+    if (hasPendingModificationRequests(order)) {
+      setPendingModificationOrder(order);
+      setIsPendingModificationModalOpen(true);
+    } else {
+      setOrderToViewAdminPdf(order);
+      setAdminCurrentPage(Page.ADMIN_VIEW_ORDER_PDF);
+    }
+  };
 
   const handleInitiateConfigureTemplateForCart = (template: Template) => {
     const itemsToConfigure = template.items.map(item => {
@@ -3463,7 +4402,7 @@ const renderViewTemplateDetailsPage = () => {
             {order.customerType && <div className="flex justify-between"><span>Customer Type:</span> <span className="font-medium">{order.customerType}</span></div>}
             
             {/* Modification Information */}
-            {order.isModified && (
+            {order.isModified && (!order.modificationRequests || order.modificationRequests.length === 0) && (
               <>
                 <div className="flex justify-between"><span>Order Modified:</span> <span className="font-medium text-orange-600">Yes</span></div>
                 {order.modificationDate && <div className="flex justify-between"><span>Modified Date:</span> <span className="font-medium">{formatDateForDisplay(order.modificationDate)}</span></div>}
@@ -3474,6 +4413,11 @@ const renderViewTemplateDetailsPage = () => {
                   <div className="flex justify-between"><span>Changes:</span> <span className="font-medium text-right break-words text-sm text-orange-600">{order.modificationSummary}</span></div>
                 )}
               </>
+            )}
+
+                          {/* Show modification request count if any */}
+              {hasAnyModificationRequests(order) && (
+                                            <div className="flex justify-between"><span>Modification Requests:</span> <span className="font-medium text-blue-600">{getTotalModificationRequestsCount(order)} Request{getTotalModificationRequestsCount(order) > 1 ? 's' : ''}</span></div>
             )}
             
             {order.attachedPhotoName && (
@@ -3504,16 +4448,189 @@ const renderViewTemplateDetailsPage = () => {
         
         <h3 className="text-lg font-semibold text-neutral-darker mb-3 mt-6">Items Ordered:</h3>
         <div className="space-y-3">
-          {order.items.map(item => (
-            <div key={item.id} className="flex items-center bg-white p-3 rounded-lg shadow">
-              {showProductImages && <img src={item.imageUrl} alt={item.name} className="w-16 h-16 object-cover rounded-md mr-3"/>}
-              <div className="flex-grow">
-                <p className="font-semibold text-neutral-darker text-sm">{item.name}</p>
-                <p className="text-xs text-neutral-dark">UOM: {item.uom}</p>
-                <p className="text-xs text-neutral-dark">Qty: {item.quantity}</p> 
+          {(() => {
+            // Create enhanced items with modification details
+            const createEnhancedItems = () => {
+              if (!order.modificationRequests || order.modificationRequests.length === 0) {
+                // No modifications, show items normally
+                return order.items.map(item => ({ 
+                  ...item, 
+                  modificationType: 'none' as const,
+                  originalQuantity: null,
+                  requestInfo: null
+                }));
+              }
+
+              // Find the most recent modification request to show changes (regardless of status)
+              const allRequests = order.modificationRequests
+                .sort((a, b) => new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime());
+              
+              if (allRequests.length === 0) {
+                // No requests, show current items normally
+                return order.items.map(item => ({ 
+                  ...item, 
+                  modificationType: 'none' as const,
+                  originalQuantity: null,
+                  requestInfo: null
+                }));
+              }
+
+              const latestRequest = allRequests[0];
+              const originalItems = order.items; // Current items (after modification)
+              const requestedItems = latestRequest.requestedItems;
+
+              // Create item comparison maps
+              const originalItemsMap = new Map(originalItems.map(item => [item.id, item]));
+              const requestedItemsMap = new Map(requestedItems.map(item => [item.id, item]));
+
+              const enhancedItems: Array<{
+                id: string;
+                name: string; 
+                description: string;
+                price: number;
+                imageUrl: string;
+                category: string;
+                uom: string;
+                quantity: number;
+                modificationType: 'none' | 'added' | 'removed' | 'quantityChanged';
+                originalQuantity: number | null;
+                requestInfo: { requestDate: string; status: string } | null;
+              }> = [];
+
+              // Since order.items represents the current state (after modifications),
+              // we need to figure out what the original state was before modifications
+              // For now, let's assume we're showing what was requested vs what is current
+
+              // Add all current items first
+              originalItems.forEach(currentItem => {
+                const requestedItem = requestedItemsMap.get(currentItem.id);
+                
+                if (!requestedItem) {
+                  // Item exists in current order but not in request - this means it was supposed to be removed
+                  enhancedItems.push({
+                    ...currentItem,
+                    modificationType: 'removed',
+                    originalQuantity: currentItem.quantity,
+                    requestInfo: { requestDate: latestRequest.requestDate, status: latestRequest.status }
+                  });
+                } else if (requestedItem.quantity !== currentItem.quantity) {
+                  // Quantity was changed
+                  enhancedItems.push({
+                    ...currentItem,
+                    modificationType: 'quantityChanged',
+                    originalQuantity: requestedItem.quantity, // What was requested
+                    requestInfo: { requestDate: latestRequest.requestDate, status: latestRequest.status }
+                  });
+                } else {
+                  // No change
+                  enhancedItems.push({
+                    ...currentItem,
+                    modificationType: 'none',
+                    originalQuantity: null,
+                    requestInfo: null
+                  });
+                }
+              });
+
+              // Add items that were requested but don't exist in current order (were added)
+              requestedItems.forEach(requestedItem => {
+                const currentItem = originalItemsMap.get(requestedItem.id);
+                if (!currentItem) {
+                  // This item was added in the request
+                  enhancedItems.push({
+                    ...requestedItem,
+                    modificationType: 'added',
+                    originalQuantity: null,
+                    requestInfo: { requestDate: latestRequest.requestDate, status: latestRequest.status }
+                  });
+                }
+              });
+
+              // Sort: modified items first, then normal items
+              return enhancedItems.sort((a, b) => {
+                const aIsModified = a.modificationType !== 'none';
+                const bIsModified = b.modificationType !== 'none';
+                
+                if (aIsModified && !bIsModified) return -1;
+                if (!aIsModified && bIsModified) return 1;
+                
+                // Both modified or both normal, maintain original order
+                return 0;
+              });
+            };
+
+            const enhancedItems = createEnhancedItems();
+
+            return enhancedItems.map(item => (
+              <div key={item.id} className={`flex items-center p-3 rounded-lg shadow ${
+                item.modificationType === 'added' ? 'bg-green-50 border-l-4 border-green-400' :
+                item.modificationType === 'removed' ? 'bg-red-50 border-l-4 border-red-400' :
+                item.modificationType === 'quantityChanged' ? 'bg-blue-50 border-l-4 border-blue-400' :
+                'bg-white'
+              }`}>
+                {/* Modification indicator */}
+                {item.modificationType !== 'none' && (
+                  <div className="mr-3 flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm">
+                    {item.modificationType === 'added' && (
+                      <div className="bg-green-500 w-full h-full rounded-full flex items-center justify-center">
+                        <span>+</span>
+                      </div>
+                    )}
+                    {item.modificationType === 'removed' && (
+                      <div className="bg-red-500 w-full h-full rounded-full flex items-center justify-center">
+                        <span>−</span>
+                      </div>
+                    )}
+                    {item.modificationType === 'quantityChanged' && (
+                      <div className="bg-blue-500 w-full h-full rounded-full flex items-center justify-center">
+                        <span>↕</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Product image */}
+                {showProductImages && <img src={item.imageUrl} alt={item.name} className="w-16 h-16 object-cover rounded-md mr-3"/>}
+                
+                {/* Product details */}
+                <div className="flex-grow">
+                  <p className={`font-semibold text-sm ${
+                    item.modificationType === 'removed' ? 'line-through text-red-600' :
+                    item.modificationType === 'added' ? 'text-green-700' :
+                    'text-neutral-darker'
+                  }`}>
+                    {item.name}
+                  </p>
+                  <p className="text-xs text-neutral-dark">UOM: {item.uom}</p>
+                  
+                  {/* Quantity display with modification details */}
+                  <div className="text-xs text-neutral-dark">
+                    {item.modificationType === 'quantityChanged' ? (
+                      <span>
+                        Qty: <span className="line-through text-red-500">{item.originalQuantity}</span>{' '}
+                        <span className="text-green-600 font-medium">→ {item.quantity}</span>
+                      </span>
+                    ) : item.modificationType === 'removed' ? (
+                      <span className="line-through text-red-600">Qty: {item.quantity}</span>
+                    ) : (
+                      <span className={item.modificationType === 'added' ? 'text-green-700 font-medium' : ''}>
+                        Qty: {item.quantity}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Modification info */}
+                  {item.requestInfo && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      {item.modificationType === 'added' && '✅ Added in modification'}
+                      {item.modificationType === 'removed' && '❌ Removed in modification'}
+                      {item.modificationType === 'quantityChanged' && '📝 Quantity updated'}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ));
+          })()}
         </div>
   
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3551,17 +4668,62 @@ const renderViewTemplateDetailsPage = () => {
                       >
                           Order ID: #{order.id}
                       </h2>
-                      {order.isModified && (
-                        <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                          Modified
-                        </span>
-                      )}
+                      {order.modificationRequests && order.modificationRequests.length > 0 && (() => {
+                        const pendingRequests = order.modificationRequests.filter(req => req.status === 'pending');
+                        const processedRequests = order.modificationRequests.filter(req => req.status !== 'pending');
+                        
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {pendingRequests.length > 0 && (
+                              <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                {pendingRequests.length === 1 ? 'Request Pending' : `${pendingRequests.length} Requests Pending`}
+                              </span>
+                            )}
+                            {processedRequests.length > 0 && (
+                              <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                {processedRequests.length} Processed
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                                             {order.isModified && hasNoModificationRequests(order) && (
+                         <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                           Modified
+                         </span>
+                       )}
                     </div>
                     <p className="text-xs text-neutral-dark">Order Date: {formatDateForDisplay(order.orderDate)}</p>
                      {order.invoiceDate && order.invoiceDate !== order.orderDate && (
                         <p className="text-xs text-neutral-dark">Invoice Date: {formatDateForDisplay(order.invoiceDate)}</p>
                      )}
-                     {order.isModified && order.modificationDate && (
+                     {order.modificationRequests && order.modificationRequests.length > 0 && (
+                        <div className="space-y-1">
+                          {order.modificationRequests.slice(0, 3).map((request, index) => (
+                            <div key={request.id}>
+                              <p className="text-xs text-blue-600">
+                                Request #{index + 1}: {formatDateForDisplay(request.requestDate)}
+                                <span className={`ml-2 px-1 rounded ${
+                                  request.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                  request.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {request.status}
+                                </span>
+                              </p>
+                              {request.processedDate && (
+                                <p className="text-xs text-green-600">
+                                  {request.status === 'accepted' ? 'Approved' : 'Processed'}: {formatDateForDisplay(request.processedDate)}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                                                      {getTotalModificationRequestsCount(order) > 3 && (
+                                                            <p className="text-xs text-gray-500">+ {getTotalModificationRequestsCount(order) - 3} more requests</p>
+                          )}
+                        </div>
+                     )}
+                     {order.isModified && order.modificationDate && (!order.modificationRequests || order.modificationRequests.length === 0) && (
                         <p className="text-xs text-orange-600">Modified: {formatDateForDisplay(order.modificationDate)}</p>
                      )}
                 </div>
@@ -3700,14 +4862,24 @@ const renderViewTemplateDetailsPage = () => {
     };
 
     const handleScrollToExistingItem = (productId: string) => {
+      // Clear the search input so user can search for next item
+      setModificationSearchQuery('');
+      
       // Find the element with the product ID and scroll to it
       const element = document.querySelector(`[data-product-id="${productId}"]`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Add a brief highlight effect
-        element.classList.add('bg-yellow-100');
+        // Add a red blinking border effect
+        element.classList.add('animate-pulse', 'border-4', 'border-red-500', 'rounded-lg');
+        // Create a more pronounced blinking effect
+        const blinkInterval = setInterval(() => {
+          element.classList.toggle('border-red-500');
+          element.classList.toggle('border-red-300');
+        }, 300);
+        
         setTimeout(() => {
-          element.classList.remove('bg-yellow-100');
+          clearInterval(blinkInterval);
+          element.classList.remove('animate-pulse', 'border-4', 'border-red-500', 'border-red-300', 'rounded-lg');
         }, 2000);
       }
     };
@@ -3803,23 +4975,56 @@ const renderViewTemplateDetailsPage = () => {
                     {searchResults.length > 0 ? (
                       searchResults.map(product => {
                         const isAlreadyInOrder = modificationCartItems.some(item => item.productId === product.id);
+                        
+                        // Check if this product has pending modification requests
+                        const existingRequests = orderBeingModified.modificationRequests || [];
+                        const pendingRequests = existingRequests.filter(req => req.status === 'pending');
+                        
+                        // Helper function to check if an item is involved in any pending request
+                        const isItemInvolvedInPendingRequest = (productId: string): boolean => {
+                          return pendingRequests.some(request => {
+                            // Check if item is in the requested items (being kept/modified)
+                            const isInRequestedItems = request.requestedItems.some(item => item.id === productId);
+                            
+                            // Check if item was removed (was in current order but not in requested items)
+                            const isInCurrentOrder = orderBeingModified.items.some(item => item.id === productId);
+                            const isRemovedInRequest = isInCurrentOrder && !isInRequestedItems;
+                            
+                            return isInRequestedItems || isRemovedInRequest;
+                          });
+                        };
+                        
+                        const hasPendingRequest = isItemInvolvedInPendingRequest(product.id);
+                        
                         return (
-                          <div key={product.id} className="flex items-center justify-between p-3 border border-neutral-light rounded-lg hover:bg-neutral-light">
+                          <div key={product.id} className={`flex items-center justify-between p-3 border border-neutral-light rounded-lg ${
+                            hasPendingRequest ? 'opacity-50 bg-gray-50' : 'hover:bg-neutral-light'
+                          }`}>
                             <div className="flex-grow">
-                              <h4 className="font-medium text-neutral-darker">{product.name}</h4>
-                              <p className="text-sm text-neutral-dark">{product.category} • {product.uom} • ${product.price.toFixed(2)}</p>
+                              <h4 className={`font-medium ${hasPendingRequest ? 'text-gray-400' : 'text-neutral-darker'}`}>{product.name}</h4>
+                              <p className={`text-sm ${hasPendingRequest ? 'text-gray-400' : 'text-neutral-dark'}`}>{product.category} • {product.uom} • ${product.price.toFixed(2)}</p>
+                              {hasPendingRequest && (
+                                <p className="text-xs text-yellow-600 mt-1">⚠️ Has pending modification request</p>
+                              )}
                             </div>
                             <div className="flex items-center space-x-2">
-                              {isAlreadyInOrder && (
+                              {isAlreadyInOrder && !hasPendingRequest && (
                                 <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">In Order</span>
                               )}
+                              {hasPendingRequest && (
+                                <span className="text-xs text-yellow-600 bg-yellow-100 px-2 py-1 rounded">Pending Request</span>
+                              )}
                               <Button 
-                                variant={isAlreadyInOrder ? "secondary" : "primary"}
+                                variant={isAlreadyInOrder && !hasPendingRequest ? "secondary" : "primary"}
                                 size="sm"
-                                onClick={() => isAlreadyInOrder ? handleScrollToExistingItem(product.id) : handleAddItemToModification(product.id)}
-                                leftIcon={<Icon name={isAlreadyInOrder ? "edit" : "plus"} className="w-4 h-4" />}
+                                disabled={hasPendingRequest}
+                                onClick={() => {
+                                  if (hasPendingRequest) return;
+                                  isAlreadyInOrder ? handleScrollToExistingItem(product.id) : handleAddItemToModification(product.id);
+                                }}
+                                leftIcon={<Icon name={isAlreadyInOrder && !hasPendingRequest ? "edit" : "plus"} className="w-4 h-4" />}
                               >
-                                {isAlreadyInOrder ? "Adjust quantity" : "Add"}
+                                {hasPendingRequest ? "Disabled" : (isAlreadyInOrder ? "Adjust quantity" : "Add")}
                               </Button>
                             </div>
                           </div>
@@ -3846,15 +5051,53 @@ const renderViewTemplateDetailsPage = () => {
             
             {modificationProducts.length > 0 ? (
               <div className="space-y-3 p-4">
-                {modificationProducts.map(item => (
-                  <div key={item.id} data-product-id={item.id} className="transition-colors duration-200">
-                    <CartItemDisplay 
-                      item={item}
-                      onUpdateQuantity={(productId, newQuantity) => handleUpdateModificationQuantity(productId, newQuantity)}
-                      onRemoveItem={(productId) => handleUpdateModificationQuantity(productId, 0)}
-                    />
-                  </div>
-                ))}
+                {(() => {
+                  // Identify items with pending modification requests
+                  const existingRequests = orderBeingModified.modificationRequests || [];
+                  const pendingRequests = existingRequests.filter(req => req.status === 'pending');
+                  
+                  // Helper function to check if an item is involved in any pending request
+                  const isItemInvolvedInPendingRequest = (productId: string): boolean => {
+                    return pendingRequests.some(request => {
+                      // Check if item is in the requested items (being kept/modified)
+                      const isInRequestedItems = request.requestedItems.some(item => item.id === productId);
+                      
+                      // Check if item was removed (was in current order but not in requested items)
+                      const isInCurrentOrder = orderBeingModified.items.some(item => item.id === productId);
+                      const isRemovedInRequest = isInCurrentOrder && !isInRequestedItems;
+                      
+                      return isInRequestedItems || isRemovedInRequest;
+                    });
+                  };
+
+                  return modificationProducts.map(item => {
+                    const hasPendingRequest = isItemInvolvedInPendingRequest(item.id);
+                    
+                    return (
+                      <div key={item.id} data-product-id={item.id} className={`transition-colors duration-200 ${
+                        hasPendingRequest ? 'opacity-50' : ''
+                      }`}>
+                        {hasPendingRequest && (
+                          <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                            <div className="flex items-center text-yellow-700">
+                              <Icon name="info" className="w-4 h-4 mr-2" />
+                              <span className="text-sm font-medium">
+                                This item has a pending modification request. Changes are disabled until admin processes the request.
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        <div className={hasPendingRequest ? 'pointer-events-none' : ''}>
+                          <CartItemDisplay 
+                            item={item}
+                            onUpdateQuantity={hasPendingRequest ? () => {} : (productId, newQuantity) => handleUpdateModificationQuantity(productId, newQuantity)}
+                            onRemoveItem={hasPendingRequest ? () => {} : (productId) => handleUpdateModificationQuantity(productId, 0)}
+                          />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             ) : (
               <div className="p-8 text-center">
@@ -4202,10 +5445,24 @@ const handleSaveInlineEdit = () => {
     let statusToUpdate: OrderStatus | undefined = undefined;
     let billedDateToSet: string | undefined = undefined;
 
-    if (columnId === 'shippingDate' && inlineEditValue instanceof Date) {
-        valueToSave = inlineEditValue.toISOString();
-        if (orderBeingEdited && orderBeingEdited.status === 'To select date' && valueToSave) {
-            statusToUpdate = 'To pick person for billing in Insmart';
+    if (columnId === 'shippingDate') {
+        if (inlineEditValue instanceof Date) {
+            // Validate shipping date before proceeding
+            if (!validateShippingDate(inlineEditValue, [orderId], 'inline')) {
+                return; // Validation failed, modal shown, wait for user decision
+            }
+            
+            valueToSave = inlineEditValue.toISOString();
+            if (orderBeingEdited && orderBeingEdited.status === 'To select date' && valueToSave) {
+                statusToUpdate = 'To pick person for billing in Insmart';
+            }
+        } else if (inlineEditValue === null) {
+            // Clearing shipping date
+            valueToSave = undefined; // Set to undefined to clear the field
+            // If clearing shipping date and order was 'To pick person for billing in Insmart', revert to 'To select date'
+            if (orderBeingEdited && orderBeingEdited.status === 'To pick person for billing in Insmart' && !orderBeingEdited.billedInInsmartBy) {
+                statusToUpdate = 'To select date';
+            }
         }
     } else if (columnId === 'billedInInsmartBy') {
         if (valueToSave === '') { 
@@ -4329,10 +5586,36 @@ const handleOpenQuickUpdateShippingDateModal = () => {
 };
 
 const handleSaveQuickUpdateShippingDate = () => {
-    if (adminSelectedOrderIds.length === 0 || !quickShippingDateToUpdate) {
-        if (!quickShippingDateToUpdate) showToast("Please select a shipping date.");
-        else showToast("No orders selected.");
+    if (adminSelectedOrderIds.length === 0) {
+        showToast("No orders selected.");
         return;
+    }
+
+    // Handle clearing shipping date (when quickShippingDateToUpdate is null)
+    if (quickShippingDateToUpdate === null) {
+        setOrders(prevOrders =>
+            prevOrders.map(order => {
+                if (adminSelectedOrderIds.includes(order.id)) {
+                    const updatedOrder = { ...order, shippingDate: undefined };
+                    // If clearing shipping date and order was 'To pick person for billing in Insmart', revert to 'To select date'
+                    if (updatedOrder.status === 'To pick person for billing in Insmart' && !updatedOrder.billedInInsmartBy) {
+                        updatedOrder.status = 'To select date';
+                    }
+                    return updatedOrder;
+                }
+                return order;
+            })
+        );
+        showToast(`${adminSelectedOrderIds.length} order(s) shipping date cleared.`);
+        setAdminSelectedOrderIds([]);
+        setIsQuickUpdateShippingDateModalOpen(false);
+        setQuickShippingDateToUpdate(null);
+        return;
+    }
+
+    // Validate shipping date before proceeding
+    if (!validateShippingDate(quickShippingDateToUpdate, adminSelectedOrderIds, 'quick')) {
+        return; // Validation failed, modal shown, wait for user decision
     }
 
     const newShippingDate = quickShippingDateToUpdate.toISOString();
@@ -4361,6 +5644,88 @@ const handleQuickAssignToMe = () => {
     }
     // For "Quick Assign to Me", the intended biller is always DEFAULT_LOGGED_IN_ADMIN_STAFF
     checkAndHandleAssignmentPriority(adminSelectedOrderIds, DEFAULT_LOGGED_IN_ADMIN_STAFF, 'quickAssign');
+};
+
+// Shipping Date Confirmation Modal Handlers
+const handleShippingDateConfirmCancel = () => {
+    setIsShippingDateConfirmModalOpen(false);
+    setShippingDateConfirmData(null);
+};
+
+const handleShippingDateConfirmProceed = () => {
+    if (!shippingDateConfirmData) return;
+    
+    const { selectedDate, orderIds, context, originalData } = shippingDateConfirmData;
+    
+    // Proceed with the original update based on context
+    if (context === 'inline') {
+        // For inline edit, we need to continue the save process
+        const { orderId } = editingCellInfo!;
+        const orderBeingEdited = orders.find(o => o.id === orderId);
+        if (!orderBeingEdited) return;
+        
+        let statusToUpdate: OrderStatus | undefined = undefined;
+        const valueToSave = selectedDate.toISOString();
+        
+        if (orderBeingEdited.status === 'To select date' && valueToSave) {
+            statusToUpdate = 'To pick person for billing in Insmart';
+        }
+        
+        setOrders(prevOrders =>
+            prevOrders.map(o => {
+                if (o.id === orderId) {
+                    const updatedFields: Partial<Order> = { shippingDate: valueToSave };
+                    if (statusToUpdate) {
+                        updatedFields.status = statusToUpdate;
+                    }
+                    return { ...o, ...updatedFields };
+                }
+                return o;
+            })
+        );
+        showToast(`Order #${orderId} updated.`);
+        setEditingCellInfo(null);
+        
+    } else if (context === 'bulk') {
+        // For bulk update, call performBulkUpdate with the original data
+        performBulkUpdate(orderIds, originalData.fields, originalData.flags);
+        
+    } else if (context === 'quick') {
+        // For quick update, continue with the original quick update process
+        const newShippingDate = selectedDate.toISOString();
+        setOrders(prevOrders =>
+            prevOrders.map(order => {
+                if (orderIds.includes(order.id)) {
+                    const updatedOrder = { ...order, shippingDate: newShippingDate };
+                    if (updatedOrder.status === 'To select date') {
+                        updatedOrder.status = 'To pick person for billing in Insmart';
+                    }
+                    return updatedOrder;
+                }
+                return order;
+            })
+        );
+        showToast(`${orderIds.length} order(s) updated with new shipping date.`);
+        setAdminSelectedOrderIds([]);
+        setIsQuickUpdateShippingDateModalOpen(false);
+        setQuickShippingDateToUpdate(null);
+    }
+    
+    // Close confirmation modal
+    setIsShippingDateConfirmModalOpen(false);
+    setShippingDateConfirmData(null);
+};
+
+// Pending Modification Request Modal Handlers
+const handlePendingModificationCancel = () => {
+    setIsPendingModificationModalOpen(false);
+    setPendingModificationOrder(null);
+};
+
+const handlePendingModificationCheckNow = () => {
+    setIsPendingModificationModalOpen(false);
+    setPendingModificationOrder(null);
+    setCurrentAdminOrderManagementSubTab('Modification Requests');
 };
 
 const billTabSortFn = (a:Order, b:Order): number => {
@@ -4403,6 +5768,259 @@ const billTabSortFn = (a:Order, b:Order): number => {
 };
 
 
+// Admin Product Catalog Page
+const renderAdminProductCatalogPage = () => {
+  const handleSelectProduct = (productId: string, isSelected: boolean) => {
+    if (isSelected) {
+      setAdminSelectedProductIds(prev => [...prev, productId]);
+    } else {
+      setAdminSelectedProductIds(prev => prev.filter(id => id !== productId));
+    }
+  };
+
+  const handleSelectAllProducts = (isSelected: boolean) => {
+    if (isSelected) {
+      setAdminSelectedProductIds(products.map(p => p.id));
+    } else {
+      setAdminSelectedProductIds([]);
+    }
+  };
+
+  const handleOpenAddProductModal = () => {
+    setNewProductForm({
+      name: '',
+      description: '',
+      price: 0,
+      imageUrl: '',
+      category: '',
+      uom: '',
+      vendor: '',
+    });
+    setIsAddProductModalOpen(true);
+  };
+
+  const handleOpenEditProductModal = (product: Product) => {
+    setEditingProduct(product);
+    setNewProductForm({
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      imageUrl: product.imageUrl,
+      category: product.category,
+      uom: product.uom,
+      vendor: product.vendor || '',
+    });
+    setIsEditProductModalOpen(true);
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-SG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const columnsToRender = ALL_ADMIN_PRODUCT_TABLE_COLUMNS.filter(col => 
+    visibleAdminProductColumns.includes(col.id)
+  );
+
+  return (
+    <div className="p-4">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-neutral-darker">Product Catalog Management</h1>
+        <p className="text-neutral-dark mt-1">Manage products, prices, and inventory details</p>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="mb-4 p-4 bg-white rounded-lg shadow-sm border border-neutral-light">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="primary"
+              onClick={handleOpenAddProductModal}
+              leftIcon={<Icon name="plus" className="w-4 h-4" />}
+            >
+              Add Product
+            </Button>
+            
+            {adminSelectedProductIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-neutral-dark">
+                  {adminSelectedProductIds.length} selected
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Icon name="edit" className="w-4 h-4" />}
+                >
+                  Bulk Edit
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  leftIcon={<Icon name="trash" className="w-4 h-4" />}
+                >
+                  Delete
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsProductColumnSelectModalOpen(true)}
+              leftIcon={<Icon name="columns" className="w-4 h-4" />}
+            >
+              Columns
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between text-sm text-neutral-dark">
+          <span>Total Products: <span className="font-semibold text-neutral-darker">{products.length}</span></span>
+          <span>Categories: <span className="font-semibold text-neutral-darker">{new Set(products.map(p => p.category)).size}</span></span>
+        </div>
+      </div>
+
+      {/* Product Table */}
+      <div className="bg-white shadow-md rounded-lg overflow-x-auto">
+        <table className="min-w-full divide-y divide-neutral-DEFAULT">
+          <thead className="bg-neutral-light">
+            <tr>
+              {columnsToRender.map(colConfig => (
+                <th 
+                  key={colConfig.id}
+                  scope="col"
+                  className="px-3 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider"
+                  style={{ minWidth: colConfig.minWidth }}
+                >
+                  {colConfig.id === 'select' ? (
+                    <input
+                      type="checkbox"
+                      className="form-checkbox h-4 w-4 text-primary rounded focus:ring-primary-light"
+                      checked={products.length > 0 && adminSelectedProductIds.length === products.length}
+                      onChange={(e) => handleSelectAllProducts(e.target.checked)}
+                      aria-label="Select all products"
+                    />
+                  ) : (
+                    colConfig.label
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-neutral-light">
+            {products.map(product => (
+              <tr key={product.id} className="hover:bg-neutral-lightest transition-colors duration-150">
+                {columnsToRender.map(colConfig => {
+                  let cellValue: any;
+                  switch(colConfig.id) {
+                    case 'productName': cellValue = product.name; break;
+                    case 'uom': cellValue = product.uom; break;
+                    case 'vendor': cellValue = product.vendor || 'N/A'; break;
+                    case 'price': cellValue = `$${product.price.toFixed(2)}`; break;
+                    case 'category': cellValue = product.category; break;
+                    case 'createdAt': cellValue = formatDate(product.createdAt); break;
+                    case 'updatedAt': cellValue = formatDate(product.updatedAt); break;
+                    default: cellValue = null;
+                  }
+
+                  return (
+                    <td 
+                      key={`${product.id}-${colConfig.id}`}
+                      className="px-3 py-4 whitespace-nowrap text-sm"
+                      style={{ minWidth: colConfig.minWidth }}
+                    >
+                      {(() => {
+                        switch(colConfig.id) {
+                          case 'select':
+                            return (
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 text-primary rounded focus:ring-primary-light"
+                                checked={adminSelectedProductIds.includes(product.id)}
+                                onChange={(e) => handleSelectProduct(product.id, e.target.checked)}
+                                aria-label={`Select product ${product.name}`}
+                              />
+                            );
+                          case 'productImage':
+                            return (
+                              <div className="flex items-center">
+                                <img
+                                  src={product.imageUrl}
+                                  alt={product.name}
+                                  className="w-10 h-10 rounded-md object-cover border border-neutral-light"
+                                />
+                              </div>
+                            );
+                          case 'productName':
+                            return (
+                              <div className="flex items-center">
+                                <div>
+                                  <div className="font-medium text-neutral-darker">{product.name}</div>
+                                  <div className="text-xs text-neutral-dark truncate max-w-xs">{product.description}</div>
+                                </div>
+                              </div>
+                            );
+                          case 'actions':
+                            return (
+                              <div className="flex items-center space-x-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleOpenEditProductModal(product)}
+                                  className="p-1.5"
+                                  title="Edit Product"
+                                >
+                                  <Icon name="edit" className="w-4 h-4 text-primary" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="p-1.5"
+                                  title="Delete Product"
+                                >
+                                  <Icon name="trash" className="w-4 h-4 text-red-500" />
+                                </Button>
+                              </div>
+                            );
+                          default:
+                            return <span className="text-neutral-darker">{cellValue}</span>;
+                        }
+                      })()}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {products.length === 0 && (
+          <div className="text-center py-12">
+            <Icon name="package" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-neutral-darker mb-2">No Products Found</h3>
+            <p className="text-neutral-dark mb-4">Get started by adding your first product to the catalog.</p>
+            <Button
+              variant="primary"
+              onClick={handleOpenAddProductModal}
+              leftIcon={<Icon name="plus" className="w-4 h-4" />}
+            >
+              Add First Product
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const renderAdminDashboardPage = () => {
     return (
         <div className="p-4"> 
@@ -4429,12 +6047,16 @@ const renderAdminDashboardPage = () => {
                     </div>
                     <p className="text-neutral-dark">Manage user accounts and permissions.</p>
                 </div>
-                 <div className="bg-white p-6 rounded-lg shadow-md opacity-50 cursor-not-allowed">
-                    <div className="flex items-center text-neutral-dark mb-3">
+                 <div 
+                    onClick={() => handleAdminNavigate(Page.ADMIN_PRODUCT_CATALOG)}
+                    className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                >
+                    <div className="flex items-center text-primary mb-3">
                         <Icon name="list" className="w-8 h-8 mr-3"/>
                         <h2 className="text-xl font-semibold">Product Catalog</h2>
                     </div>
-                    <p className="text-neutral-dark">(Coming Soon) Manage product details and categories.</p>
+                    <p className="text-neutral-dark">Manage product details and categories.</p>
+                    <p className="text-neutral-darker font-bold mt-2">{products.length} Total Products</p>
                 </div>
                  <div className="bg-white p-6 rounded-lg shadow-md opacity-50 cursor-not-allowed">
                      <div className="flex items-center text-neutral-dark mb-3">
@@ -4492,14 +6114,18 @@ const AdminOrderTable: React.FC<{
                     </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-neutral-light">
-                    {ordersToDisplay.map(order => (
+                    {ordersToDisplay.map(order => {
+                        const modificationStatus = getModificationRequestStatus(order);
+                        return (
                         <tr 
                             key={order.id} 
                             className={`
                                 ${order.status === 'Billing in progress' ? 'bg-amber-100 hover:bg-amber-200' : 
                                   order.status === 'Billed in Insmart' ? 'bg-green-100 hover:bg-green-200' :
                                   adminSelectedOrderIds.includes(order.id) ? 'bg-primary-light bg-opacity-20' : ''} 
-                                ${doesOrderExceedCreditLimit(order) ? 'border-2 border-red-500' : ''}
+                                ${doesOrderExceedCreditLimit(order) && !modificationStatus ? 'border-2 border-red-500' : 
+                                  doesOrderExceedCreditLimit(order) && modificationStatus ? `border-2 border-red-500 border-l-8 ${modificationStatus.borderColor}` :
+                                  modificationStatus ? `border-l-8 ${modificationStatus.borderColor}` : ''}
                                 hover:bg-neutral-lightest transition-colors duration-150
                             `}
                         >
@@ -4554,6 +6180,23 @@ const AdminOrderTable: React.FC<{
                                                     return (
                                                         <div className="flex items-center space-x-0.5">
                                                             <span>#{order.id}</span>
+                                                            {modificationStatus && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="inline-flex items-center justify-center w-4 h-4 hover:bg-gray-100 rounded cursor-pointer"
+                                                                    title={`${modificationStatus.totalCount} modification request${modificationStatus.totalCount > 1 ? 's' : ''} - ${
+                                                                        modificationStatus.type === 'pending' ? `${modificationStatus.pendingCount} pending` :
+                                                                        modificationStatus.type === 'processed' ? `${modificationStatus.processedCount} processed` :
+                                                                        `${modificationStatus.pendingCount} pending, ${modificationStatus.processedCount} processed`
+                                                                    } (Click to view details)`}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setCurrentAdminOrderManagementSubTab('Modification Requests');
+                                                                    }}
+                                                                >
+                                                                    <Icon name="edit" className={`w-3 h-3 ${modificationStatus.iconColor}`}/>
+                                                                </button>
+                                                            )}
                                                             <span data-action-wrapper className="inline-flex items-center justify-center w-5 h-5">
                                                                 <Button 
                                                                     data-action="view-pdf"
@@ -4561,7 +6204,7 @@ const AdminOrderTable: React.FC<{
                                                                     size="sm" 
                                                                     className="p-0.5" 
                                                                     title="View Order PDF"
-                                                                    onClick={(e) => { e.stopPropagation(); setOrderToViewAdminPdf(order); setAdminCurrentPage(Page.ADMIN_VIEW_ORDER_PDF); }}
+                                                                    onClick={(e) => { e.stopPropagation(); handleViewOrderPdf(order); }}
                                                                 >
                                                                     <Icon name="eye" className="w-3.5 h-3.5 text-primary"/>
                                                                 </Button>
@@ -4678,7 +6321,8 @@ const AdminOrderTable: React.FC<{
                                 )
                             })}
                         </tr>
-                    ))}
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
@@ -4873,7 +6517,8 @@ const renderAdminOrderManagementPage = () => {
                                 
                                 return limitAmount > 0 && order.totalPrice >= limitAmount;
                             }).length;
-                        }
+                                }
+        else if (tab === 'Modification Requests') count = orders.filter(hasAnyModificationRequests).length;
                         else if (tab === 'All Orders') count = orders.length;
 
 
@@ -5346,6 +6991,329 @@ const renderAdminOrderManagementPage = () => {
                 );
             })()}
 
+            {currentAdminOrderManagementSubTab === 'Modification Requests' && (() => {
+                // SIMPLE LOGIC: Show ALL orders that have ANY modification requests
+                const ordersWithModificationRequests = orders.filter(hasAnyModificationRequests);
+                
+                // Create individual product request entries - show ALL requests from both arrays
+                const productRequestEntries: Array<{
+                    orderId: string;
+                    orderDate: string;
+                    shop: string;
+                    requestId: string;
+                    requestDate: string;
+                    requestStatus: ModificationRequestStatus; // Overall request status
+                    itemStatus: ModificationRequestStatus; // Individual item status
+                    processedDate?: string;
+                    productId: string;
+                    productName: string;
+                    originalQuantity: number;
+                    requestedQuantity: number;
+                    changeType: 'added' | 'removed' | 'quantityChanged';
+                    unitPrice: number;
+                    originalTotalPrice: number;
+                    requestedTotalPrice: number;
+                }> = [];
+                
+                ordersWithModificationRequests.forEach(order => {
+                    // Process both pending and processed modification requests - show both A and B
+                    const allRequests = [
+                        ...(order.modificationRequests || []),
+                        ...(order.processedModificationRequests || [])
+                    ];
+                    
+                    allRequests.forEach(request => {
+                        const requestedItems = request.requestedItems;
+                        const isPendingRequest = request.status === 'pending';
+                        
+                        // Handle removed items based on request status
+                        if (isPendingRequest) {
+                            // For PENDING requests: use stored pendingRemovedItems
+                            const pendingRemovedItems = request.pendingRemovedItems || [];
+                            pendingRemovedItems.forEach(removedItem => {
+                                productRequestEntries.push({
+                                    orderId: order.id,
+                                    orderDate: order.orderDate,
+                                    shop: order.shopLocation || 'Not specified',
+                                    requestId: request.id,
+                                    requestDate: request.requestDate,
+                                    requestStatus: request.status,
+                                    itemStatus: 'pending',
+                                    processedDate: undefined,
+                                    productId: removedItem.productId,
+                                    productName: removedItem.productName,
+                                    originalQuantity: removedItem.originalQuantity,
+                                    requestedQuantity: 0,
+                                    changeType: 'removed',
+                                    unitPrice: removedItem.unitPrice,
+                                    originalTotalPrice: order.totalPrice,
+                                    requestedTotalPrice: request.requestedTotalPrice
+                                });
+                            });
+                        } else {
+                            // For PROCESSED requests: use stored processedRemovedItems
+                            const processedRemovedItems = request.processedRemovedItems || [];
+                            processedRemovedItems.forEach(removedItem => {
+                                productRequestEntries.push({
+                                    orderId: order.id,
+                                    orderDate: order.orderDate,
+                                    shop: order.shopLocation || 'Not specified',
+                                    requestId: request.id,
+                                    requestDate: request.requestDate,
+                                    requestStatus: request.status,
+                                    itemStatus: removedItem.status,
+                                    processedDate: removedItem.processedDate,
+                                    productId: removedItem.productId,
+                                    productName: removedItem.productName || `Product ${removedItem.productId}`,
+                                    originalQuantity: removedItem.originalQuantity || 1,
+                                    requestedQuantity: 0,
+                                    changeType: 'removed',
+                                    unitPrice: removedItem.unitPrice || 0,
+                                    originalTotalPrice: order.totalPrice,
+                                    requestedTotalPrice: request.requestedTotalPrice
+                                });
+                            });
+                        }
+                        
+                        // Handle added and quantity changed items 
+                        requestedItems.forEach(requestedItem => {
+                            let changeType: 'added' | 'removed' | 'quantityChanged';
+                            let originalQuantity = 0;
+                            let requestedQuantity = requestedItem.quantity;
+                            
+                            // Use stored change information if available (for both pending and processed)
+                            if (requestedItem.changeType) {
+                                changeType = requestedItem.changeType;
+                                originalQuantity = requestedItem.originalQuantity || 0;
+                            } else {
+                                // Fallback logic for requests created before the fix
+                                if (isPendingRequest) {
+                                    // For pending requests: compare with current order items
+                                    const currentItems = order.items;
+                                    const currentItem = currentItems.find(item => item.id === requestedItem.id);
+                                    
+                                    if (!currentItem) {
+                                        // Item would be added
+                                        changeType = 'added';
+                                        originalQuantity = 0;
+                                    } else if (currentItem.quantity !== requestedItem.quantity) {
+                                        // Quantity would be changed
+                                        changeType = 'quantityChanged';
+                                        originalQuantity = currentItem.quantity;
+                                    } else {
+                                        // No change for this item, skip
+                                        return;
+                                    }
+                                } else {
+                                    // For old processed requests without stored change info, show as generic modification
+                                    changeType = 'quantityChanged';
+                                    originalQuantity = 0; // Don't try to reconstruct
+                                }
+                            }
+                            
+                            productRequestEntries.push({
+                                orderId: order.id,
+                                orderDate: order.orderDate,
+                                shop: order.shopLocation || 'Not specified',
+                                requestId: request.id,
+                                requestDate: request.requestDate,
+                                requestStatus: request.status,
+                                itemStatus: requestedItem.itemStatus,
+                                processedDate: requestedItem.processedDate,
+                                productId: requestedItem.id,
+                                productName: requestedItem.name,
+                                originalQuantity,
+                                requestedQuantity,
+                                changeType,
+                                unitPrice: requestedItem.price,
+                                originalTotalPrice: order.totalPrice,
+                                requestedTotalPrice: request.requestedTotalPrice
+                            });
+                        });
+                    });
+                });
+                
+                // Sort by order number first, then by item status (pending items first)
+                const sortedProductEntries = productRequestEntries.sort((a, b) => {
+                    // First sort by order ID
+                    const orderCompare = a.orderId.localeCompare(b.orderId);
+                    if (orderCompare !== 0) return orderCompare;
+                    
+                    // Then sort by item status - pending items first, then accepted/denied
+                    const statusOrder = { 'pending': 0, 'accepted': 1, 'denied': 2 };
+                    const aStatusOrder = statusOrder[a.itemStatus] ?? 3;
+                    const bStatusOrder = statusOrder[b.itemStatus] ?? 3;
+                    if (aStatusOrder !== bStatusOrder) return aStatusOrder - bStatusOrder;
+                    
+                    // Finally sort by request date (most recent first) for items with same order and status
+                    return new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime();
+                });
+
+                return sortedProductEntries.length === 0 ? (
+                    <div className="text-center py-10 bg-white rounded-lg shadow">
+                        <Icon name="edit" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4"/>
+                        <p className="text-neutral-dark text-xl">No modification requests found.</p>
+                        <p className="text-neutral-DEFAULT text-sm mt-2">Customer modification requests will appear here.</p>
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-lg shadow overflow-hidden">
+                        <div className="px-6 py-4 border-b border-neutral-light">
+                            <h2 className="text-lg font-semibold text-neutral-darker">Order Modification Requests</h2>
+                            <p className="text-sm text-neutral-dark mt-1">
+                                Customer requests to modify their orders
+                            </p>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead className="bg-neutral-lightest">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Order Details
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Product
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Change Type
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Quantity Change
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Request Date
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Status
+                                        </th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                            Actions
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-neutral-light">
+                                    {sortedProductEntries.map((entry, index) => {
+                                        const getChangeTypeDisplay = (changeType: string, originalQty: number, requestedQty: number) => {
+                                            switch (changeType) {
+                                                case 'added':
+                                                    return { icon: '➕', text: 'Added', bgColor: 'bg-green-50', textColor: 'text-green-700' };
+                                                case 'removed':
+                                                    return { icon: '❌', text: 'Removed', bgColor: 'bg-red-50', textColor: 'text-red-700' };
+                                                case 'quantityChanged':
+                                                    const isIncrease = requestedQty > originalQty;
+                                                    return { 
+                                                        icon: isIncrease ? '📈' : '📉', 
+                                                        text: isIncrease ? 'Increased' : 'Decreased',
+                                                        bgColor: isIncrease ? 'bg-blue-50' : 'bg-orange-50',
+                                                        textColor: isIncrease ? 'text-blue-700' : 'text-orange-700'
+                                                    };
+                                                default:
+                                                    return { icon: '📝', text: 'Modified', bgColor: 'bg-gray-50', textColor: 'text-gray-700' };
+                                            }
+                                        };
+
+                                        const getRequestStatusBadge = (status: ModificationRequestStatus) => {
+                                            switch (status) {
+                                                case 'pending':
+                                                    return 'bg-yellow-100 text-yellow-800';
+                                                case 'accepted':
+                                                    return 'bg-green-100 text-green-800';
+                                                case 'denied':
+                                                    return 'bg-red-100 text-red-800';
+                                                default:
+                                                    return 'bg-gray-100 text-gray-800';
+                                            }
+                                        };
+
+                                        const changeDisplay = getChangeTypeDisplay(entry.changeType, entry.originalQuantity, entry.requestedQuantity);
+
+                                        return (
+                                            <tr key={`${entry.orderId}-${entry.requestId}-${entry.productId}`} className="hover:bg-neutral-lightest">
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium text-neutral-darker">#{entry.orderId}</span>
+                                                        <span className="text-xs text-neutral-dark">{entry.shop}</span>
+                                                        <span className="text-xs text-neutral-dark">{formatDateForDisplay(entry.orderDate)}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium text-neutral-darker">{entry.productName}</span>
+                                                        <span className="text-xs text-neutral-dark">Unit: ${entry.unitPrice.toFixed(2)}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${changeDisplay.bgColor} ${changeDisplay.textColor}`}>
+                                                        <span className="mr-1">{changeDisplay.icon}</span>
+                                                        {changeDisplay.text}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <div className="flex flex-col">
+                                                        {entry.changeType === 'added' && (
+                                                            <span className="text-green-600 font-medium">+ {entry.requestedQuantity}</span>
+                                                        )}
+                                                        {entry.changeType === 'removed' && (
+                                                            <span className="text-red-600 font-medium line-through">- {entry.originalQuantity}</span>
+                                                        )}
+                                                        {entry.changeType === 'quantityChanged' && (
+                                                            <div>
+                                                                <span className="text-red-500 line-through">{entry.originalQuantity}</span>
+                                                                <span className="mx-1">→</span>
+                                                                <span className="text-green-600 font-medium">{entry.requestedQuantity}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                    {formatDateForDisplay(entry.requestDate)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRequestStatusBadge(entry.itemStatus)}`}>
+                                                        {entry.itemStatus.charAt(0).toUpperCase() + entry.itemStatus.slice(1)}
+                                                    </span>
+                                                    {entry.processedDate && (
+                                                        <div className="text-xs text-neutral-dark mt-1">
+                                                            {formatDateForDisplay(entry.processedDate)}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {entry.itemStatus === 'pending' && (
+                                                        <div className="flex justify-center space-x-1">
+                                                            <Button
+                                                                variant="success"
+                                                                size="sm"
+                                                                onClick={() => handleAcceptProductModificationRequest(entry.orderId, entry.requestId, entry.productId)}
+                                                                className="text-xs px-2 py-1"
+                                                            >
+                                                                Accept
+                                                            </Button>
+                                                            <Button
+                                                                variant="danger"
+                                                                size="sm"
+                                                                onClick={() => handleDenyProductModificationRequest(entry.orderId, entry.requestId, entry.productId)}
+                                                                className="text-xs px-2 py-1"
+                                                            >
+                                                                Deny
+                                                            </Button>
+                                                        </div>
+                                                    )}
+                                                    {entry.itemStatus !== 'pending' && (
+                                                        <span className="text-xs text-neutral-dark">
+                                                            {entry.itemStatus === 'accepted' ? 'Approved' : 'Denied'}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {editingCellInfo && (
                 <div 
                     ref={inlineEditPopupRef} 
@@ -5388,6 +7356,7 @@ const renderAdminOrderManagementPage = () => {
                             minDate={new Date()} 
                             id={`inline-edit-shipping-date-${editingCellInfo.orderId}`}
                             initialOpen={true}
+                            showClearButton={true}
                         />
                     )}
                     {editingCellInfo.columnId === 'packedBy' && (
@@ -5504,18 +7473,42 @@ const renderOrderPdfLayout = (ordersToDisplay: Order[], isMultiPrint: boolean) =
                      {order.billedDate && <p className="text-xs mb-1"><strong>Billed Date:</strong> {formatSimpleDate(order.billedDate)}</p>}
                      
                      {/* Modification Information in PDF */}
-                     {order.isModified && (
-                       <div className="mt-2 pt-2 border-t border-neutral-light">
-                         <p className="text-xs mb-1 text-orange-600"><strong>Order Modified:</strong> Yes</p>
-                         {order.modificationDate && <p className="text-xs mb-1"><strong>Modified Date:</strong> {formatSimpleDate(order.modificationDate)}</p>}
-                         {order.originalTotalPrice && (
-                           <p className="text-xs mb-1"><strong>Original Total:</strong> <span className="line-through">${order.originalTotalPrice.toFixed(2)}</span></p>
-                         )}
-                         {order.modificationSummary && (
-                           <p className="text-xs mb-1"><strong>Changes:</strong> {order.modificationSummary}</p>
-                         )}
-                       </div>
-                     )}
+                     {(order.isModified || (order.processedModificationRequests && order.processedModificationRequests.length > 0)) && (() => {
+                       const hasLegacyModification = order.isModified && hasNoModificationRequests(order);
+                       const hasNewModificationRequests = order.processedModificationRequests && order.processedModificationRequests.length > 0;
+                       
+                       if (hasLegacyModification || hasNewModificationRequests) {
+                         const { changeCount, changesText } = generatePdfChangesFormat(order);
+                         const modificationDate = hasLegacyModification ? order.modificationDate : order.processedModificationRequests?.[0]?.processedDate;
+                         
+                         return (
+                           <div className="mt-2 pt-2 border-t border-neutral-light">
+                             <div className="grid grid-cols-2 gap-2">
+                               <div>
+                                 <p className="text-xs mb-1 text-orange-600"><strong>Order Modified:</strong> Yes</p>
+                                 {modificationDate && (
+                                   <p className="text-xs mb-1"><strong>Modified Date:</strong> {formatDateTimeForPdf(modificationDate)}</p>
+                                 )}
+                               </div>
+                               <div>
+                                 {(() => {
+                                   // Only show removed items in the changes section
+                                   const { removedItems } = generatePdfChangesFormat(order);
+                                   if (removedItems.length > 0) {
+                                     const removedItemsText = removedItems.join(', ');
+                                     return (
+                                       <p className="text-xs mb-1"><strong>Item(s) removed:</strong> {removedItemsText}</p>
+                                     );
+                                   }
+                                   return null;
+                                 })()}
+                               </div>
+                             </div>
+                           </div>
+                         );
+                       }
+                       return null;
+                     })()}
 
 
                     <table className="w-full text-left mb-6 text-sm">
@@ -5529,15 +7522,35 @@ const renderOrderPdfLayout = (ordersToDisplay: Order[], isMultiPrint: boolean) =
                             </tr>
                         </thead>
                         <tbody>
-                            {order.items.map((item, idx) => (
-                                <tr key={item.id} className="border-b border-neutral-light">
-                                    <td className="py-2 pr-2">{idx + 1}</td>
-                                    <td className="py-2">{item.name} <span className="text-neutral-dark">({item.uom})</span></td>
-                                    <td className="py-2 text-center">{item.quantity}</td>
-                                    <td className="py-2 text-right">${item.price.toFixed(2)}</td>
-                                    <td className="py-2 text-right">${(item.price * item.quantity).toFixed(2)}</td>
-                                </tr>
-                            ))}
+                            {order.items.map((item, idx) => {
+                                const modificationInfo = getItemModificationInfo(order, item.id);
+                                
+                                return (
+                                    <tr key={item.id} className="border-b border-neutral-light">
+                                        <td className="py-2 pr-2">{idx + 1}</td>
+                                        <td className="py-2">
+                                            <div>
+                                                <div>{item.name} <span className="text-neutral-dark">({item.uom})</span></div>
+                                                {modificationInfo.isAddition && (
+                                                    <div className="text-xs text-green-600 font-medium mt-0.5">Addition</div>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="py-2 text-center">
+                                            {modificationInfo.hasQuantityChange && modificationInfo.originalQuantity !== null ? (
+                                                <div className="flex items-center justify-center space-x-1">
+                                                    <span className="line-through text-neutral-dark text-xs">{modificationInfo.originalQuantity}</span>
+                                                    <span>{item.quantity}</span>
+                                                </div>
+                                            ) : (
+                                                <span>{item.quantity}</span>
+                                            )}
+                                        </td>
+                                        <td className="py-2 text-right">${item.price.toFixed(2)}</td>
+                                        <td className="py-2 text-right">${(item.price * item.quantity).toFixed(2)}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
 
@@ -6339,6 +8352,7 @@ const renderAdminUserManagementPage = () => {
                     case Page.ADMIN_DASHBOARD: return renderAdminDashboardPage();
                     case Page.ADMIN_ORDER_MANAGEMENT: return renderAdminOrderManagementPage();
                     case Page.ADMIN_USER_MANAGEMENT: return renderAdminUserManagementPage();
+                    case Page.ADMIN_PRODUCT_CATALOG: return renderAdminProductCatalogPage();
                     case Page.ADMIN_VIEW_ORDER_PDF: return renderAdminViewOrderPdfPage();
                     case Page.ADMIN_PRINT_ORDERS_PDF: return renderAdminPrintOrdersPdfPage();
                     default: 
@@ -7218,6 +9232,7 @@ const renderAdminUserManagementPage = () => {
                         onChange={(date) => setUpdateFieldsState(s => ({...s, shippingDate: date}))}
                         minDate={new Date()}
                         id="bulk-update-shipping-date"
+                        showClearButton={true}
                     />
                 </div>
             </div>
@@ -7312,21 +9327,91 @@ const renderAdminUserManagementPage = () => {
        <Modal
             isOpen={isQuickUpdateShippingDateModalOpen}
             onClose={() => setIsQuickUpdateShippingDateModalOpen(false)}
-            title={`Set Shipping Date for ${adminSelectedOrderIds.length} Order(s)`}
+            title={`Update Shipping Date for ${adminSelectedOrderIds.length} Order(s)`}
             footer={
                 <>
                     <Button variant="ghost" onClick={() => setIsQuickUpdateShippingDateModalOpen(false)}>Cancel</Button>
-                    <Button variant="primary" onClick={handleSaveQuickUpdateShippingDate}>Apply Date</Button>
+                    <Button variant="primary" onClick={handleSaveQuickUpdateShippingDate}>
+                        {quickShippingDateToUpdate ? 'Apply Date' : 'Clear Dates'}
+                    </Button>
                 </>
             }
         >
             <DatePicker
-                label="Select a new shipping date:"
+                label="Select a new shipping date (or clear existing dates):"
                 selectedDate={quickShippingDateToUpdate}
                 onChange={(date) => setQuickShippingDateToUpdate(date)}
                 minDate={new Date()}
                 id="quick-update-shipping-date"
+                showClearButton={true}
             />
+        </Modal>
+
+        {/* Shipping Date Confirmation Modal */}
+        <Modal
+            isOpen={isShippingDateConfirmModalOpen}
+            onClose={handleShippingDateConfirmCancel}
+            title="Shipping Date Confirmation"
+            footer={
+                <>
+                    <Button variant="ghost" onClick={handleShippingDateConfirmCancel}>Let me check first</Button>
+                    <Button variant="primary" onClick={handleShippingDateConfirmProceed}>Proceed with selected date</Button>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="bg-yellow-50 border-l-4 border-yellow-500 text-yellow-700 p-3 rounded-md">
+                    <div className="flex items-start">
+                        <Icon name="info" className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <p className="font-medium">Early Shipment Warning</p>
+                            <p className="text-sm mt-1">
+                                Shipping Date selected is before Customer Invoice Request Date. Please only proceed if you have called and confirmed early shipment with <strong>{shippingDateConfirmData?.shopName}</strong>!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Modal>
+
+        {/* Pending Modification Request Modal */}
+        <Modal
+            isOpen={isPendingModificationModalOpen}
+            onClose={handlePendingModificationCancel}
+            title="Cannot View PDF Invoice"
+            footer={
+                <>
+                    <Button variant="ghost" onClick={handlePendingModificationCancel}>Cancel</Button>
+                    <Button variant="primary" onClick={handlePendingModificationCheckNow}>Check now</Button>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="bg-orange-50 border-l-4 border-orange-500 text-orange-700 p-3 rounded-md">
+                    <div className="flex items-start">
+                        <Icon name="info" className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <p className="font-medium">Pending Modification Request(s)</p>
+                            <p className="text-sm mt-1">
+                                Order have pending modification request(s).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <p className="text-neutral-darker text-sm">
+                    The PDF invoice cannot be viewed while there are pending modification requests for this order. 
+                    Please process all modification requests first to ensure the invoice reflects the most accurate information.
+                </p>
+                {pendingModificationOrder && (() => {
+                    const changesCount = calculatePendingChangesCount(pendingModificationOrder);
+                    return (
+                        <div className="bg-neutral-50 border border-neutral-200 rounded-md p-3">
+                            <p className="text-sm"><strong>Order:</strong> #{pendingModificationOrder.id}</p>
+                            <p className="text-sm"><strong>Pending Changes:</strong> {changesCount} {changesCount === 1 ? 'change' : 'changes'}</p>
+                        </div>
+                    );
+                })()}
+            </div>
         </Modal>
 
         <Modal
@@ -8970,11 +11055,11 @@ const renderAdminUserManagementPage = () => {
         )}
       </Modal>
 
-      {/* Order Modification Confirmation Modal */}
+      {/* Order Modification Request Confirmation Modal */}
       <Modal
         isOpen={isModificationConfirmModalOpen}
         onClose={handleCancelModificationConfirm}
-        title="Confirm Order Modification"
+        title="Confirm Modification Request"
       >
         <div className="space-y-4">
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
@@ -8983,22 +11068,20 @@ const renderAdminUserManagementPage = () => {
               <h3 className="text-lg font-semibold text-orange-800">Important Notice</h3>
             </div>
             <p className="text-sm text-orange-700 mb-3">
-              You can only send <strong>1 modification per order</strong>. Once you submit changes, 
-              you won't be able to modify this order again.
+              <strong>Take note, please send your modification request as soon as possible.</strong> You are sending a modification request only. 
+              This request would be fulfilled depending on if your package has already left our company or not.
             </p>
+            {orderTimerText && (
+              <div className="text-sm text-orange-700 mb-3">
+                <strong>{orderTimerText}</strong> since order created
+              </div>
+            )}
             <p className="text-sm text-orange-700">
               Would you like to proceed now or check your order details again first?
             </p>
           </div>
 
-          {orderIdPendingModification && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-medium text-blue-800 mb-2">Order Details</h4>
-              <div className="text-sm text-blue-700">
-                <span className="font-medium">Order ID:</span> #{orderIdPendingModification}
-              </div>
-            </div>
-          )}
+
 
           <div className="flex justify-end space-x-3 pt-4 border-t border-neutral-100">
             <Button 
@@ -9017,11 +11100,11 @@ const renderAdminUserManagementPage = () => {
         </div>
       </Modal>
 
-      {/* Order Modification Summary Modal */}
+      {/* Order Modification Request Summary Modal */}
       <Modal
         isOpen={isModificationSummaryModalOpen}
         onClose={handleCloseModificationSummary}
-        title="Order Modification Summary"
+        title="Modification Request Summary"
       >
         {modificationSummaryData && (() => {
           const { originalItems, newItems, originalTotal, newTotal } = modificationSummaryData;
@@ -9168,7 +11251,7 @@ const renderAdminUserManagementPage = () => {
                   variant="success" 
                   onClick={handleConfirmModificationSummary}
                 >
-                  Confirm Changes
+                  Submit Request
                 </Button>
               </div>
             </div>

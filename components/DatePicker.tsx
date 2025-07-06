@@ -4,12 +4,13 @@ import Icon from './Icon';
 
 interface DatePickerProps {
   selectedDate: Date | null;
-  onChange: (date: Date) => void;
+  onChange: (date: Date | null) => void;
   minDate?: Date;
   maxDate?: Date;
   label?: string;
   id?: string;
   initialOpen?: boolean; // Added prop
+  showClearButton?: boolean; // New prop for showing clear button
 }
 
 const DatePicker: React.FC<DatePickerProps> = ({ 
@@ -19,7 +20,8 @@ const DatePicker: React.FC<DatePickerProps> = ({
   maxDate, 
   label, 
   id, 
-  initialOpen // Destructure prop
+  initialOpen, // Destructure prop
+  showClearButton = false // Destructure new prop with default value
 }) => {
   const [isOpen, setIsOpen] = useState(initialOpen || false); // Use prop for initial state
   
@@ -76,6 +78,11 @@ const DatePicker: React.FC<DatePickerProps> = ({
 
   const handleDateClick = (date: Date) => {
     onChange(date);
+    setIsOpen(false);
+  };
+
+  const handleClearDate = () => {
+    onChange(null);
     setIsOpen(false);
   };
 
@@ -164,6 +171,16 @@ const DatePicker: React.FC<DatePickerProps> = ({
           <div className="grid grid-cols-7 gap-1">
             {renderDays()}
           </div>
+          {showClearButton && selectedDate && (
+            <div className="mt-3 pt-3 border-t border-neutral-light">
+              <button
+                onClick={handleClearDate}
+                className="w-full px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 hover:border-red-300 rounded-md transition-colors"
+              >
+                Clear Date
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
