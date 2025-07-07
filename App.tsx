@@ -7996,8 +7996,11 @@ const AdminOrderTable: React.FC<{
                                 ${order.status === 'Billing in progress' ? 'bg-amber-100 hover:bg-amber-200' : 
                                   order.status === 'Billed in Insmart' ? 'bg-green-100 hover:bg-green-200' :
                                   adminSelectedOrderIds.includes(order.id) ? 'bg-primary-light bg-opacity-20' : ''} 
-                                ${doesOrderExceedCreditLimit(order) && !modificationStatus ? 'border-2 border-red-500' : 
+                                ${doesOrderExceedCreditLimit(order) && !modificationStatus && !isOrderShopOnBillingHold(order) ? 'border-2 border-red-500' : 
+                                  isOrderShopOnBillingHold(order) && !modificationStatus && !doesOrderExceedCreditLimit(order) ? 'border-2 border-black' :
+                                  doesOrderExceedCreditLimit(order) && isOrderShopOnBillingHold(order) && !modificationStatus ? 'border-2 border-red-500 border-l-4 border-l-black' :
                                   doesOrderExceedCreditLimit(order) && modificationStatus ? `border-2 border-red-500 border-l-8 ${modificationStatus.borderColor}` :
+                                  isOrderShopOnBillingHold(order) && modificationStatus ? `border-2 border-black border-l-8 ${modificationStatus.borderColor}` :
                                   modificationStatus ? `border-l-8 ${modificationStatus.borderColor}` : ''}
                                 hover:bg-neutral-lightest transition-colors duration-150
                             `}
@@ -8245,19 +8248,17 @@ const renderAdminOrderManagementPage = () => {
                                 .map(col => col.id);
 
 
-    let toPickDate_internalBillingHoldOrders: Order[] = [];
+
 
     if (currentAdminOrderManagementSubTab === 'To Pick Date') {
-        const toPickDateOrders = baseSortedOrders.filter(order => order.status === 'To select date' || order.status === 'To pick person for billing in Insmart');
+        const toPickDateOrders = baseSortedOrders.filter(order => 
+            (order.status === 'To select date' || order.status === 'To pick person for billing in Insmart') &&
+            !isOrderShopOnBillingHold(order) // Exclude internal billing hold orders
+        );
         
-        // Separate orders with internal billing hold
-        const ordersWithBillingHold = toPickDateOrders.filter(o => isOrderShopOnBillingHold(o));
-        const ordersWithoutBillingHold = toPickDateOrders.filter(o => !isOrderShopOnBillingHold(o));
+        toPickDate_ungroupedOrders = toPickDateOrders.filter(o => !o.shippingDate);
         
-        toPickDate_internalBillingHoldOrders = ordersWithBillingHold;
-        toPickDate_ungroupedOrders = ordersWithoutBillingHold.filter(o => !o.shippingDate);
-        
-        const ordersWithShippingDate = ordersWithoutBillingHold.filter(o => !!o.shippingDate);
+        const ordersWithShippingDate = toPickDateOrders.filter(o => !!o.shippingDate);
         toPickDate_groupedOrdersByDate = ordersWithShippingDate.reduce((acc, order) => {
             const dateKey = order.shippingDate!; 
             if (!acc[dateKey]) acc[dateKey] = [];
@@ -8295,7 +8296,7 @@ const renderAdminOrderManagementPage = () => {
     const handlePrintSelected = () => {
         let allCurrentlyDisplayedOrders: Order[] = [];
         if (currentAdminOrderManagementSubTab === 'To Pick Date') {
-            allCurrentlyDisplayedOrders = [...toPickDate_internalBillingHoldOrders, ...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
+            allCurrentlyDisplayedOrders = [...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
         } else if (currentAdminOrderManagementSubTab === 'To Bill in Insmart') {
             allCurrentlyDisplayedOrders = [...toBillInsmart_ungroupedOrders, ...toBillInsmart_sortedBillerKeys.flatMap(key => toBillInsmart_groupedOrdersByBiller[key])];
         } else { 
@@ -8373,10 +8374,28 @@ const renderAdminOrderManagementPage = () => {
                 <div className="flex border-b border-neutral-DEFAULT">
                     {ADMIN_ORDER_MANAGEMENT_SUB_TABS.map(tab => {
                         let count = 0;
-                        if (tab === 'To Pick Date') count = orders.filter(o => o.status === 'To select date' || o.status === 'To pick person for billing in Insmart').length;
+                        if (tab === 'To Pick Date') count = orders.filter(o => (o.status === 'To select date' || o.status === 'To pick person for billing in Insmart') && !isOrderShopOnBillingHold(o)).length;
                         else if (tab === 'To Bill in Insmart') count = orders.filter(o => !!o.shippingDate && (o.status === 'To pick person for billing in Insmart' || o.status === 'Order delegated for billing' || o.status === 'Billing in progress' || o.status === 'Billed in Insmart')).length;
                         else if (tab === 'Billed to Schedule') count = orders.filter(o => o.status === 'Billed in Insmart').length;
                         else if (tab === 'Schedule') count = 0; // Empty for now
+                        else if (tab === 'Accounting related') {
+                            // Count orders that exceed amount limit OR have internal billing hold
+                            const exceedingAmountLimitCount = orders.filter(order => {
+                                const shop = organizations.flatMap(org => org.shops).find(s => s.name === order.shopLocation);
+                                if (!shop || !shop.paymentTerms) return false;
+                                const isAmountLimitShop = shop.paymentTerms.includes('Amount Limit');
+                                if (!isAmountLimitShop) return false;
+                                let limitAmount = 0;
+                                if (shop.amountLimit) {
+                                    limitAmount = parseFloat(shop.amountLimit.toString());
+                                } else if (shop.paymentTerms.startsWith('Amount Limit: $')) {
+                                    limitAmount = parseFloat(shop.paymentTerms.replace('Amount Limit: $', ''));
+                                }
+                                return limitAmount > 0 && order.totalPrice >= limitAmount;
+                            }).length;
+                            const billingHoldCount = orders.filter(o => isOrderShopOnBillingHold(o)).length;
+                            count = exceedingAmountLimitCount + billingHoldCount;
+                        }
                         else if (tab === 'Accounting related') {
                             count = orders.filter(order => {
                                 // Find the shop's payment limit
@@ -8434,16 +8453,13 @@ const renderAdminOrderManagementPage = () => {
 
             {currentAdminOrderManagementSubTab === 'To Pick Date' && (
                 <>
-                    {toPickDate_internalBillingHoldOrders.length === 0 && toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
+                    {toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
                          <div className="text-center py-10 bg-white rounded-lg shadow">
                             <Icon name="packageCheck" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4"/>
                             <p className="text-neutral-dark text-xl">No orders require date selection.</p>
                         </div>
                     ) : (
                         <div className="space-y-6">
-                            {toPickDate_internalBillingHoldOrders.length > 0 && (
-                                <AdminOrderTable ordersToDisplay={toPickDate_internalBillingHoldOrders} groupTitle="Internal Billing Hold" effectiveVisibleColumns={effectiveTableColumns} isInternalBillingHold={true} />
-                            )}
                             {toPickDate_ungroupedOrders.length > 0 && (
                                 <AdminOrderTable ordersToDisplay={toPickDate_ungroupedOrders} groupTitle="Ungrouped Orders" effectiveVisibleColumns={effectiveTableColumns} />
                             )}
@@ -8742,11 +8758,9 @@ const renderAdminOrderManagementPage = () => {
 
             {currentAdminOrderManagementSubTab === 'Accounting related' && (() => {
                 // Filter orders that exceed their shop's payment limit
-                const accountingOrders = orders.filter(order => {
+                const exceedingAmountLimitOrders = orders.filter(order => {
                     // Find the shop's payment limit
                     const shop = organizations.flatMap(org => org.shops).find(s => s.name === order.shopLocation);
-                    
-
                     
                     if (!shop || !shop.paymentTerms) return false;
                     
@@ -8765,8 +8779,11 @@ const renderAdminOrderManagementPage = () => {
                     return limitAmount > 0 && order.totalPrice >= limitAmount;
                 });
 
-                // Create custom table data with the required fields
-                const accountingTableData = accountingOrders.map(order => {
+                // Filter orders with internal billing hold
+                const billingHoldOrders = orders.filter(order => isOrderShopOnBillingHold(order));
+
+                // Create custom table data for amount limit orders
+                const amountLimitTableData = exceedingAmountLimitOrders.map(order => {
                     const shop = organizations.flatMap(org => org.shops).find(s => s.name === order.shopLocation);
                     const customerName = order.contactNumber?.split(' - ')[0] || 'N/A';
                     
@@ -8793,84 +8810,106 @@ const renderAdminOrderManagementPage = () => {
                     };
                 });
 
-                return accountingTableData.length === 0 ? (
+                const hasAmountLimitOrders = amountLimitTableData.length > 0;
+                const hasBillingHoldOrders = billingHoldOrders.length > 0;
+
+                return (!hasAmountLimitOrders && !hasBillingHoldOrders) ? (
                     <div className="text-center py-10 bg-white rounded-lg shadow">
                         <Icon name="dollarSign" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4"/>
-                        <p className="text-neutral-dark text-xl">No orders exceed payment limits.</p>
-                        <p className="text-neutral-DEFAULT text-sm mt-2">Orders will appear here when they equal or exceed their shop's amount limit.</p>
+                        <p className="text-neutral-dark text-xl">No accounting-related orders.</p>
+                        <p className="text-neutral-DEFAULT text-sm mt-2">Orders will appear here when they exceed payment limits or have internal billing hold.</p>
                     </div>
                 ) : (
-                    <div className="bg-white rounded-lg shadow overflow-hidden">
-                        <div className="px-6 py-4 border-b border-neutral-light">
-                            <h2 className="text-lg font-semibold text-neutral-darker">Orders Exceeding Payment Limits</h2>
-                            <p className="text-sm text-neutral-dark mt-1">
-                                Orders where the total amount equals or exceeds the shop's payment limit
-                            </p>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-neutral-lightest">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Order No.
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Shop Name
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Customer Name
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Order Amount
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Limit Amount
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            Excess Amount
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            PIC of Payment Name
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
-                                            PIC of Payment Contact
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-neutral-light">
-                                    {accountingTableData.map((order) => (
-                                        <tr key={order.id} className="hover:bg-neutral-lightest">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-darker">
-                                                #{order.id}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                {order.shopLocation || 'N/A'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                {order.customerName}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                <span className="font-medium">${order.totalPrice.toFixed(2)}</span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                ${order.limitAmount.toFixed(2)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                <span className="font-medium text-red-600">
-                                                    ${(order.totalPrice - order.limitAmount).toFixed(2)}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                {order.picName}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
-                                                {order.picContact !== 'N/A' ? order.picContact : 'N/A'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div className="space-y-6">
+                        {hasAmountLimitOrders && (
+                            <div className="bg-white rounded-lg shadow overflow-hidden">
+                                <div className="px-6 py-4 border-b border-neutral-light">
+                                    <h2 className="text-lg font-semibold text-neutral-darker">Orders - Exceeding Amount Limit</h2>
+                                    <p className="text-sm text-neutral-dark mt-1">
+                                        Orders where the total amount equals or exceeds the shop's payment limit
+                                    </p>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-neutral-lightest">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Order No.
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Shop Name
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Customer Name
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Order Amount
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Limit Amount
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    Excess Amount
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    PIC of Payment Name
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-neutral-darker uppercase tracking-wider">
+                                                    PIC of Payment Contact
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-neutral-light">
+                                            {amountLimitTableData.map((order) => (
+                                                <tr key={order.id} className="hover:bg-neutral-lightest">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-darker">
+                                                        #{order.id}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        {order.shopLocation || 'N/A'}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        {order.customerName}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        <span className="font-medium">${order.totalPrice.toFixed(2)}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        ${order.limitAmount.toFixed(2)}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        <span className="font-medium text-red-600">
+                                                            ${(order.totalPrice - order.limitAmount).toFixed(2)}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        {order.picName}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-dark">
+                                                        {order.picContact !== 'N/A' ? order.picContact : 'N/A'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {hasBillingHoldOrders && (
+                            <div className="bg-white rounded-lg shadow overflow-hidden">
+                                <div className="px-6 py-4 border-b border-neutral-light">
+                                    <h2 className="text-lg font-semibold text-neutral-darker">Orders - Internal Billing Hold</h2>
+                                    <p className="text-sm text-neutral-dark mt-1">
+                                        Orders from shops with internal billing hold enabled
+                                    </p>
+                                </div>
+                                <AdminOrderTable 
+                                    ordersToDisplay={billingHoldOrders} 
+                                    effectiveVisibleColumns={effectiveTableColumns}
+                                />
+                            </div>
+                        )}
                     </div>
                 );
             })()}
