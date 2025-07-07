@@ -8250,15 +8250,19 @@ const renderAdminOrderManagementPage = () => {
 
 
 
+    let toPickDate_internalBillingHoldOrders: Order[] = [];
+
     if (currentAdminOrderManagementSubTab === 'To Pick Date') {
-        const toPickDateOrders = baseSortedOrders.filter(order => 
-            (order.status === 'To select date' || order.status === 'To pick person for billing in Insmart') &&
-            !isOrderShopOnBillingHold(order) // Exclude internal billing hold orders
-        );
+        const toPickDateOrders = baseSortedOrders.filter(order => order.status === 'To select date' || order.status === 'To pick person for billing in Insmart');
         
-        toPickDate_ungroupedOrders = toPickDateOrders.filter(o => !o.shippingDate);
+        // Separate orders with internal billing hold
+        const ordersWithBillingHold = toPickDateOrders.filter(o => isOrderShopOnBillingHold(o));
+        const ordersWithoutBillingHold = toPickDateOrders.filter(o => !isOrderShopOnBillingHold(o));
         
-        const ordersWithShippingDate = toPickDateOrders.filter(o => !!o.shippingDate);
+        toPickDate_internalBillingHoldOrders = ordersWithBillingHold;
+        toPickDate_ungroupedOrders = ordersWithoutBillingHold.filter(o => !o.shippingDate);
+        
+        const ordersWithShippingDate = ordersWithoutBillingHold.filter(o => !!o.shippingDate);
         toPickDate_groupedOrdersByDate = ordersWithShippingDate.reduce((acc, order) => {
             const dateKey = order.shippingDate!; 
             if (!acc[dateKey]) acc[dateKey] = [];
@@ -8296,7 +8300,7 @@ const renderAdminOrderManagementPage = () => {
     const handlePrintSelected = () => {
         let allCurrentlyDisplayedOrders: Order[] = [];
         if (currentAdminOrderManagementSubTab === 'To Pick Date') {
-            allCurrentlyDisplayedOrders = [...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
+            allCurrentlyDisplayedOrders = [...toPickDate_internalBillingHoldOrders, ...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
         } else if (currentAdminOrderManagementSubTab === 'To Bill in Insmart') {
             allCurrentlyDisplayedOrders = [...toBillInsmart_ungroupedOrders, ...toBillInsmart_sortedBillerKeys.flatMap(key => toBillInsmart_groupedOrdersByBiller[key])];
         } else { 
@@ -8374,7 +8378,7 @@ const renderAdminOrderManagementPage = () => {
                 <div className="flex border-b border-neutral-DEFAULT">
                     {ADMIN_ORDER_MANAGEMENT_SUB_TABS.map(tab => {
                         let count = 0;
-                        if (tab === 'To Pick Date') count = orders.filter(o => (o.status === 'To select date' || o.status === 'To pick person for billing in Insmart') && !isOrderShopOnBillingHold(o)).length;
+                        if (tab === 'To Pick Date') count = orders.filter(o => o.status === 'To select date' || o.status === 'To pick person for billing in Insmart').length;
                         else if (tab === 'To Bill in Insmart') count = orders.filter(o => !!o.shippingDate && (o.status === 'To pick person for billing in Insmart' || o.status === 'Order delegated for billing' || o.status === 'Billing in progress' || o.status === 'Billed in Insmart')).length;
                         else if (tab === 'Billed to Schedule') count = orders.filter(o => o.status === 'Billed in Insmart').length;
                         else if (tab === 'Schedule') count = 0; // Empty for now
@@ -8453,13 +8457,16 @@ const renderAdminOrderManagementPage = () => {
 
             {currentAdminOrderManagementSubTab === 'To Pick Date' && (
                 <>
-                    {toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
+                    {toPickDate_internalBillingHoldOrders.length === 0 && toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
                          <div className="text-center py-10 bg-white rounded-lg shadow">
                             <Icon name="packageCheck" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4"/>
                             <p className="text-neutral-dark text-xl">No orders require date selection.</p>
                         </div>
                     ) : (
                         <div className="space-y-6">
+                            {toPickDate_internalBillingHoldOrders.length > 0 && (
+                                <AdminOrderTable ordersToDisplay={toPickDate_internalBillingHoldOrders} groupTitle="Internal Billing Hold" effectiveVisibleColumns={effectiveTableColumns} isInternalBillingHold={true} />
+                            )}
                             {toPickDate_ungroupedOrders.length > 0 && (
                                 <AdminOrderTable ordersToDisplay={toPickDate_ungroupedOrders} groupTitle="Ungrouped Orders" effectiveVisibleColumns={effectiveTableColumns} />
                             )}
