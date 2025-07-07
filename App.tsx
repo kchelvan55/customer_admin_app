@@ -1140,6 +1140,18 @@ export const App: React.FC = () => {
         setUnlinkedShops([]);
     }
 
+    // Load products data from localStorage
+    const storedProducts = localStorage.getItem('products');
+    if (storedProducts) {
+        try { setProducts(JSON.parse(storedProducts)); }
+        catch (e) { 
+            console.error("Error parsing products from localStorage, using MOCK_PRODUCTS.", e);
+            setProducts(MOCK_PRODUCTS);
+        }
+    } else {
+        setProducts(MOCK_PRODUCTS);
+    }
+
     // Cross-tab synchronization: Listen for localStorage changes
     const handleStorageChange = (event: StorageEvent) => {
       console.log('🔄 Storage event received:', event.key, event.newValue ? 'has value' : 'no value');
@@ -1273,6 +1285,9 @@ export const App: React.FC = () => {
             case 'unlinkedShops':
               setUnlinkedShops(JSON.parse(event.newValue));
               break;
+            case 'products':
+              setProducts(JSON.parse(event.newValue));
+              break;
             // Add more cases as needed for other localStorage keys
           }
         } catch (e) {
@@ -1327,6 +1342,7 @@ export const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('allAppUsers', JSON.stringify(allAppUsers)); }, [allAppUsers]);
   useEffect(() => { localStorage.setItem('organizations', JSON.stringify(organizations)); }, [organizations]);
   useEffect(() => { localStorage.setItem('unlinkedShops', JSON.stringify(unlinkedShops)); }, [unlinkedShops]);
+  useEffect(() => { localStorage.setItem('products', JSON.stringify(products)); }, [products]);
 
   // Timer for order modification confirmation modal
   useEffect(() => {
@@ -5527,7 +5543,7 @@ const renderViewTemplateDetailsPage = () => {
       day: 'numeric' 
     });
   };
-
+  
 const renderProfilePage = () => {
     const ProfileInfoItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
         <p className="text-neutral-darker"><span className="font-medium text-neutral-dark">{label}:</span> {value}</p>
