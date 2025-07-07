@@ -1239,18 +1239,7 @@ export const App: React.FC = () => {
             case 'showProductImages':
               setShowProductImages(JSON.parse(event.newValue));
               break;
-            case 'currentAdminOrderManagementSubTab':
-              const parsedOrderSubTab = JSON.parse(event.newValue) as AdminOrderManagementSubTab;
-              if (ADMIN_ORDER_MANAGEMENT_SUB_TABS.includes(parsedOrderSubTab)) {
-                setCurrentAdminOrderManagementSubTab(parsedOrderSubTab);
-              }
-              break;
-            case 'currentAdminUserManagementSubTab':
-              const parsedUserSubTab = JSON.parse(event.newValue) as AdminUserManagementSubTab;
-              if (ADMIN_USER_MANAGEMENT_SUB_TABS.includes(parsedUserSubTab)) {
-                setCurrentAdminUserManagementSubTab(parsedUserSubTab);
-              }
-              break;
+            // Note: Removed currentAdminOrderManagementSubTab and currentAdminUserManagementSubTab sync to allow independent sub-tab navigation per tab
             case 'allAppUsers':
               setAllAppUsers(JSON.parse(event.newValue));
               break;
