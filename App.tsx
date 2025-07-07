@@ -1116,6 +1116,30 @@ export const App: React.FC = () => {
         setAllAppUsers(combinedMockUsers);
     }
 
+    // Load organizations data from localStorage
+    const storedOrganizations = localStorage.getItem('organizations');
+    if (storedOrganizations) {
+        try { setOrganizations(JSON.parse(storedOrganizations)); }
+        catch (e) { 
+            console.error("Error parsing organizations from localStorage, using initial data.", e);
+            setOrganizations(initialOrganizations);
+        }
+    } else {
+        setOrganizations(initialOrganizations);
+    }
+
+    // Load unlinked shops data from localStorage  
+    const storedUnlinkedShops = localStorage.getItem('unlinkedShops');
+    if (storedUnlinkedShops) {
+        try { setUnlinkedShops(JSON.parse(storedUnlinkedShops)); }
+        catch (e) { 
+            console.error("Error parsing unlinkedShops from localStorage.", e);
+            setUnlinkedShops([]);
+        }
+    } else {
+        setUnlinkedShops([]);
+    }
+
     // Cross-tab synchronization: Listen for localStorage changes
     const handleStorageChange = (event: StorageEvent) => {
       console.log('🔄 Storage event received:', event.key, event.newValue ? 'has value' : 'no value');
@@ -1243,6 +1267,12 @@ export const App: React.FC = () => {
             case 'allAppUsers':
               setAllAppUsers(JSON.parse(event.newValue));
               break;
+            case 'organizations':
+              setOrganizations(JSON.parse(event.newValue));
+              break;
+            case 'unlinkedShops':
+              setUnlinkedShops(JSON.parse(event.newValue));
+              break;
             // Add more cases as needed for other localStorage keys
           }
         } catch (e) {
@@ -1295,6 +1325,8 @@ export const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('currentAdminOrderManagementSubTab', JSON.stringify(currentAdminOrderManagementSubTab)); }, [currentAdminOrderManagementSubTab]);
   useEffect(() => { localStorage.setItem('currentAdminUserManagementSubTab', JSON.stringify(currentAdminUserManagementSubTab)); }, [currentAdminUserManagementSubTab]);
   useEffect(() => { localStorage.setItem('allAppUsers', JSON.stringify(allAppUsers)); }, [allAppUsers]);
+  useEffect(() => { localStorage.setItem('organizations', JSON.stringify(organizations)); }, [organizations]);
+  useEffect(() => { localStorage.setItem('unlinkedShops', JSON.stringify(unlinkedShops)); }, [unlinkedShops]);
 
   // Timer for order modification confirmation modal
   useEffect(() => {
