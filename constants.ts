@@ -1,12 +1,6 @@
 
 import { Product } from './types';
 
-const POSSIBLE_UOMS: string[] = ["125g", "250g", "500g", "1kg", "600mL", "1L", "25kg", "30kg"];
-
-const getRandomUOM = (): string => {
-  return POSSIBLE_UOMS[Math.floor(Math.random() * POSSIBLE_UOMS.length)];
-};
-
 export const MOCK_PRODUCTS: Product[] = [
   // Spices
   {
@@ -16,7 +10,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.99,
     imageUrl: 'https://picsum.photos/seed/turmericpowder/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_2',
@@ -25,7 +19,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.49,
     imageUrl: 'https://picsum.photos/seed/cuminseeds/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_3',
@@ -34,7 +28,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.79,
     imageUrl: 'https://picsum.photos/seed/corianderpowder/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_4',
@@ -43,7 +37,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.99,
     imageUrl: 'https://picsum.photos/seed/garammasala/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_5',
@@ -52,7 +46,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.29,
     imageUrl: 'https://picsum.photos/seed/redchilipowder/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_6',
@@ -61,7 +55,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 7.99,
     imageUrl: 'https://picsum.photos/seed/cardamompods/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_7',
@@ -70,7 +64,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.49,
     imageUrl: 'https://picsum.photos/seed/cloves/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_8',
@@ -79,7 +73,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.29,
     imageUrl: 'https://picsum.photos/seed/mustardseeds/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_9',
@@ -88,7 +82,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.99,
     imageUrl: 'https://picsum.photos/seed/fenugreekseeds/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
   {
     id: 'prod_ig_10',
@@ -97,7 +91,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.79,
     imageUrl: 'https://picsum.photos/seed/asafoetida/400/300',
     category: 'Spices',
-    uom: getRandomUOM(),
+    uom: '125g',
   },
 
   // Lentils & Beans
@@ -108,7 +102,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.99,
     imageUrl: 'https://picsum.photos/seed/toordal/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_12',
@@ -117,7 +111,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.49,
     imageUrl: 'https://picsum.photos/seed/masoordal/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_13',
@@ -126,7 +120,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.29,
     imageUrl: 'https://picsum.photos/seed/chanadal/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_14',
@@ -135,7 +129,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 7.49,
     imageUrl: 'https://picsum.photos/seed/moongdal/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_15',
@@ -144,7 +138,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.79,
     imageUrl: 'https://picsum.photos/seed/uraddal/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_16',
@@ -153,7 +147,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 8.99,
     imageUrl: 'https://picsum.photos/seed/rajma/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_17',
@@ -162,7 +156,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 7.99,
     imageUrl: 'https://picsum.photos/seed/kabulichana/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_18',
@@ -171,7 +165,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.49,
     imageUrl: 'https://picsum.photos/seed/lobia/400/300',
     category: 'Lentils & Beans',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
 
   // Rice & Grains
@@ -182,7 +176,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 15.99,
     imageUrl: 'https://picsum.photos/seed/basmatirice/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '25kg',
   },
   {
     id: 'prod_ig_20',
@@ -191,7 +185,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 12.99,
     imageUrl: 'https://picsum.photos/seed/sonamasoori/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '25kg',
   },
   {
     id: 'prod_ig_21',
@@ -200,7 +194,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 10.99,
     imageUrl: 'https://picsum.photos/seed/idlirice/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_22',
@@ -209,7 +203,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.99,
     imageUrl: 'https://picsum.photos/seed/poha/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_23',
@@ -218,7 +212,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.99,
     imageUrl: 'https://picsum.photos/seed/sooji/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_24',
@@ -227,7 +221,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 9.99,
     imageUrl: 'https://picsum.photos/seed/attaflour/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_25',
@@ -236,7 +230,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.29,
     imageUrl: 'https://picsum.photos/seed/besanflour/400/300',
     category: 'Rice & Grains',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
 
   // Snacks
@@ -247,7 +241,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.79,
     imageUrl: 'https://picsum.photos/seed/murukku/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_27',
@@ -256,7 +250,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.99,
     imageUrl: 'https://picsum.photos/seed/aloobhujia/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_28',
@@ -265,7 +259,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 7.99,
     imageUrl: 'https://picsum.photos/seed/samosafrozen/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: 'pcs',
   },
   {
     id: 'prod_ig_29',
@@ -274,7 +268,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.49,
     imageUrl: 'https://picsum.photos/seed/khakhra/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_30',
@@ -283,7 +277,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.99,
     imageUrl: 'https://picsum.photos/seed/bhelpurimix/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_31',
@@ -292,7 +286,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.99,
     imageUrl: 'https://picsum.photos/seed/mathri/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_32',
@@ -301,7 +295,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.29,
     imageUrl: 'https://picsum.photos/seed/roastedchana/400/300',
     category: 'Snacks',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
 
   // Beverages
@@ -312,7 +306,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 8.49,
     imageUrl: 'https://picsum.photos/seed/masalachaimix/400/300',
     category: 'Beverages',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_34',
@@ -321,7 +315,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.99,
     imageUrl: 'https://picsum.photos/seed/mangolassi/400/300',
     category: 'Beverages',
-    uom: getRandomUOM(),
+    uom: '600mL',
   },
   {
     id: 'prod_ig_35',
@@ -330,7 +324,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 9.99,
     imageUrl: 'https://picsum.photos/seed/roohafza/400/300',
     category: 'Beverages',
-    uom: getRandomUOM(),
+    uom: '1L',
   },
   {
     id: 'prod_ig_36',
@@ -339,7 +333,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 7.79,
     imageUrl: 'https://picsum.photos/seed/filtercoffee/400/300',
     category: 'Beverages',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_37',
@@ -348,7 +342,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.99,
     imageUrl: 'https://picsum.photos/seed/badammilk/400/300',
     category: 'Beverages',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
 
   // Pantry Staples (Conceptual Fresh Produce)
@@ -359,7 +353,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 2.99,
     imageUrl: 'https://picsum.photos/seed/onions/400/300',
     category: 'Pantry Staples',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_39',
@@ -368,7 +362,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 3.49,
     imageUrl: 'https://picsum.photos/seed/potatoes/400/300',
     category: 'Pantry Staples',
-    uom: getRandomUOM(),
+    uom: '1kg',
   },
   {
     id: 'prod_ig_40',
@@ -377,7 +371,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 2.79,
     imageUrl: 'https://picsum.photos/seed/tomatoes/400/300',
     category: 'Pantry Staples',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_41',
@@ -386,7 +380,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 1.99,
     imageUrl: 'https://picsum.photos/seed/ginger/400/300',
     category: 'Pantry Staples',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_42',
@@ -395,7 +389,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 2.29,
     imageUrl: 'https://picsum.photos/seed/garlic/400/300',
     category: 'Pantry Staples',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
 
   // Dairy & Frozen
@@ -406,7 +400,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 6.99,
     imageUrl: 'https://picsum.photos/seed/paneer/400/300',
     category: 'Dairy & Frozen',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_44',
@@ -415,7 +409,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 12.49,
     imageUrl: 'https://picsum.photos/seed/ghee/400/300',
     category: 'Dairy & Frozen',
-    uom: getRandomUOM(),
+    uom: '500g',
   },
   {
     id: 'prod_ig_45',
@@ -424,7 +418,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.49,
     imageUrl: 'https://picsum.photos/seed/dahi/400/300',
     category: 'Dairy & Frozen',
-    uom: getRandomUOM(),
+    uom: '600mL',
   },
   {
     id: 'prod_ig_46',
@@ -433,7 +427,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 8.99,
     imageUrl: 'https://picsum.photos/seed/kulfi/400/300',
     category: 'Dairy & Frozen',
-    uom: getRandomUOM(),
+    uom: 'pcs',
   },
   {
     id: 'prod_ig_47',
@@ -442,7 +436,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.99,
     imageUrl: 'https://picsum.photos/seed/parathafrozen/400/300',
     category: 'Dairy & Frozen',
-    uom: getRandomUOM(),
+    uom: 'pcs',
   },
 
   // Ready to Eat
@@ -453,7 +447,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.99,
     imageUrl: 'https://picsum.photos/seed/palakpaneerrte/400/300',
     category: 'Ready to Eat',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_49',
@@ -462,7 +456,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 4.79,
     imageUrl: 'https://picsum.photos/seed/dalmakhanirte/400/300',
     category: 'Ready to Eat',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
   {
     id: 'prod_ig_50',
@@ -471,7 +465,7 @@ export const MOCK_PRODUCTS: Product[] = [
     price: 5.49,
     imageUrl: 'https://picsum.photos/seed/vegbiryanirte/400/300',
     category: 'Ready to Eat',
-    uom: getRandomUOM(),
+    uom: '250g',
   },
 ];
 

@@ -357,6 +357,33 @@ export const App: React.FC = () => {
     action: 'enable' | 'disable';
   } | null>(null);
 
+  // Internal Billing Hold Warning Modal states
+  const [isInternalBillingHoldWarningModalOpen, setIsInternalBillingHoldWarningModalOpen] = useState(false);
+
+  // Helper function to check if order's shop has internal billing hold enabled
+  const isOrderShopOnBillingHold = (order: Order): boolean => {
+    if (!order.shopLocation) return false;
+    
+    // Check in organizations
+    for (const org of organizations) {
+      if (org.shops) {
+        const shop = org.shops.find((s: any) => s.name === order.shopLocation);
+        if (shop && shop.internalBillingHold) {
+          return true;
+        }
+      }
+    }
+    
+    // Check in unlinked shops
+    const unlinkedShop = unlinkedShops.find((s: any) => s.name === order.shopLocation);
+    return unlinkedShop?.internalBillingHold || false;
+  };
+
+  // Handler for internal billing hold warning modal
+  const handleCloseInternalBillingHoldWarningModal = () => {
+    setIsInternalBillingHoldWarningModalOpen(false);
+  };
+
   // State for User Management
   const [allAppUsers, setAllAppUsers] = useState<AppUser[]>([
     {
@@ -5924,6 +5951,16 @@ const handleCellMouseUp = (
     if (!colConfig || !colConfig.isEditable) return;
     if (!inlineEditMouseDownPos) return;
 
+    // Check for internal billing hold when trying to edit shipping date
+    if (columnId === 'shippingDate') {
+        const order = orders.find(o => o.id === orderId);
+        if (order && isOrderShopOnBillingHold(order)) {
+            setInlineEditMouseDownPos(null);
+            setIsInternalBillingHoldWarningModalOpen(true);
+            return;
+        }
+    }
+
     const deltaX = Math.abs(e.clientX - inlineEditMouseDownPos.x);
     const deltaY = Math.abs(e.clientY - inlineEditMouseDownPos.y);
 
@@ -6105,6 +6142,23 @@ const handleCancelBilling = (orderId: string) => {
 // --- New handlers for Quick Update Shipping Date ---
 const handleOpenQuickUpdateShippingDateModal = () => {
     if (adminSelectedOrderIds.length > 0) {
+        // Filter out orders with internal billing hold
+        const eligibleOrderIds = adminSelectedOrderIds.filter(orderId => {
+            const order = orders.find(o => o.id === orderId);
+            return order && !isOrderShopOnBillingHold(order);
+        });
+
+        if (eligibleOrderIds.length === 0) {
+            setIsInternalBillingHoldWarningModalOpen(true);
+            return;
+        }
+
+        if (eligibleOrderIds.length < adminSelectedOrderIds.length) {
+            const holdCount = adminSelectedOrderIds.length - eligibleOrderIds.length;
+            showToast(`${holdCount} order(s) skipped due to internal billing hold. Proceeding with ${eligibleOrderIds.length} eligible order(s).`);
+            setAdminSelectedOrderIds(eligibleOrderIds);
+        }
+
         setQuickShippingDateToUpdate(null); // Reset date
         setIsQuickUpdateShippingDateModalOpen(true);
     } else {
@@ -7894,7 +7948,8 @@ const AdminOrderTable: React.FC<{
     groupTitle?: string;
     effectiveVisibleColumns: AdminOrderTableColumnId[];
     isUngroupedBilling?: boolean;
-}> = ({ ordersToDisplay, groupTitle, effectiveVisibleColumns, isUngroupedBilling = false }) => {
+    isInternalBillingHold?: boolean;
+}> = ({ ordersToDisplay, groupTitle, effectiveVisibleColumns, isUngroupedBilling = false, isInternalBillingHold = false }) => {
     const isAllInGroupSelected = ordersToDisplay.length > 0 && ordersToDisplay.every(o => adminSelectedOrderIds.includes(o.id));
 
     const columnsToRender = ALL_ADMIN_ORDER_TABLE_COLUMNS.filter(colConfig => effectiveVisibleColumns.includes(colConfig.id));
@@ -8190,11 +8245,19 @@ const renderAdminOrderManagementPage = () => {
                                 .map(col => col.id);
 
 
+    let toPickDate_internalBillingHoldOrders: Order[] = [];
+
     if (currentAdminOrderManagementSubTab === 'To Pick Date') {
         const toPickDateOrders = baseSortedOrders.filter(order => order.status === 'To select date' || order.status === 'To pick person for billing in Insmart');
-        toPickDate_ungroupedOrders = toPickDateOrders.filter(o => !o.shippingDate);
         
-        const ordersWithShippingDate = toPickDateOrders.filter(o => !!o.shippingDate);
+        // Separate orders with internal billing hold
+        const ordersWithBillingHold = toPickDateOrders.filter(o => isOrderShopOnBillingHold(o));
+        const ordersWithoutBillingHold = toPickDateOrders.filter(o => !isOrderShopOnBillingHold(o));
+        
+        toPickDate_internalBillingHoldOrders = ordersWithBillingHold;
+        toPickDate_ungroupedOrders = ordersWithoutBillingHold.filter(o => !o.shippingDate);
+        
+        const ordersWithShippingDate = ordersWithoutBillingHold.filter(o => !!o.shippingDate);
         toPickDate_groupedOrdersByDate = ordersWithShippingDate.reduce((acc, order) => {
             const dateKey = order.shippingDate!; 
             if (!acc[dateKey]) acc[dateKey] = [];
@@ -8232,7 +8295,7 @@ const renderAdminOrderManagementPage = () => {
     const handlePrintSelected = () => {
         let allCurrentlyDisplayedOrders: Order[] = [];
         if (currentAdminOrderManagementSubTab === 'To Pick Date') {
-            allCurrentlyDisplayedOrders = [...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
+            allCurrentlyDisplayedOrders = [...toPickDate_internalBillingHoldOrders, ...toPickDate_ungroupedOrders, ...toPickDate_sortedDateKeys.flatMap(key => toPickDate_groupedOrdersByDate[key])];
         } else if (currentAdminOrderManagementSubTab === 'To Bill in Insmart') {
             allCurrentlyDisplayedOrders = [...toBillInsmart_ungroupedOrders, ...toBillInsmart_sortedBillerKeys.flatMap(key => toBillInsmart_groupedOrdersByBiller[key])];
         } else { 
@@ -8371,13 +8434,16 @@ const renderAdminOrderManagementPage = () => {
 
             {currentAdminOrderManagementSubTab === 'To Pick Date' && (
                 <>
-                    {toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
+                    {toPickDate_internalBillingHoldOrders.length === 0 && toPickDate_ungroupedOrders.length === 0 && toPickDate_sortedDateKeys.length === 0 ? (
                          <div className="text-center py-10 bg-white rounded-lg shadow">
                             <Icon name="packageCheck" className="w-16 h-16 text-neutral-DEFAULT mx-auto mb-4"/>
                             <p className="text-neutral-dark text-xl">No orders require date selection.</p>
                         </div>
                     ) : (
                         <div className="space-y-6">
+                            {toPickDate_internalBillingHoldOrders.length > 0 && (
+                                <AdminOrderTable ordersToDisplay={toPickDate_internalBillingHoldOrders} groupTitle="Internal Billing Hold" effectiveVisibleColumns={effectiveTableColumns} isInternalBillingHold={true} />
+                            )}
                             {toPickDate_ungroupedOrders.length > 0 && (
                                 <AdminOrderTable ordersToDisplay={toPickDate_ungroupedOrders} groupTitle="Ungrouped Orders" effectiveVisibleColumns={effectiveTableColumns} />
                             )}
@@ -12942,6 +13008,34 @@ const renderAdminUserManagementPage = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Internal Billing Hold Warning Modal */}
+      <Modal
+        isOpen={isInternalBillingHoldWarningModalOpen}
+        onClose={handleCloseInternalBillingHoldWarningModal}
+        title="Internal Billing Hold Active"
+      >
+        <div className="space-y-4">
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="flex items-center mb-2">
+              <Icon name="alert" className="w-5 h-5 mr-2 text-orange-600" />
+              <h4 className="font-medium text-orange-800">Action Restricted</h4>
+            </div>
+            <p className="text-sm text-orange-700">
+              Internal billing for this order is on hold. Check with accounting department.
+            </p>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-neutral-100">
+            <Button 
+              variant="primary" 
+              onClick={handleCloseInternalBillingHoldWarningModal}
+            >
+              Understood
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Shop Organization Management Modal */}
