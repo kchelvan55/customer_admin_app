@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Icon from './Icon';
 
@@ -34,18 +33,30 @@ const DatePicker: React.FC<DatePickerProps> = ({
   }, [selectedDate, minDate]);
   
   const [displayMonth, setDisplayMonth] = useState<Date>(initialDisplayMonth);
+  
+  // Track if we've initialized the display month to prevent unnecessary resets
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const datePickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (selectedDate) {
-      setDisplayMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
-    } else if (minDate && !selectedDate) { // Only set based on minDate if no selectedDate
-      setDisplayMonth(new Date(minDate.getFullYear(), minDate.getMonth(), 1));
-    } else if (!selectedDate && !minDate) { // Default to today if no selection and no minDate
+    // Only reset display month in specific scenarios to avoid jumping back to current month
+    if (!hasInitialized) {
+      // First initialization
+      if (selectedDate) {
+        setDisplayMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+      } else if (minDate && !selectedDate) {
+        setDisplayMonth(new Date(minDate.getFullYear(), minDate.getMonth(), 1));
+      } else if (!selectedDate && !minDate) {
         setDisplayMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+      }
+      setHasInitialized(true);
+    } else if (selectedDate) {
+      // Only reset when a date is actually selected (user picked a date)
+      setDisplayMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     }
-  }, [selectedDate, minDate]);
+    // Note: We deliberately don't reset when only minDate changes to preserve navigation state
+  }, [selectedDate, minDate, hasInitialized]);
 
 
   useEffect(() => {
@@ -125,7 +136,7 @@ const DatePicker: React.FC<DatePickerProps> = ({
             isDisabled ? 'text-neutral-DEFAULT cursor-not-allowed' :
             isToday ? 'text-primary border border-primary' : 'text-neutral-darker hover:bg-neutral-light'
             }`}
-          aria-pressed={isSelected}
+          aria-pressed={!!isSelected}
           aria-label={currentDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         >
           {day}

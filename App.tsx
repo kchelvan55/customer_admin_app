@@ -3036,8 +3036,13 @@ const _performAssignment = (targetOrderIds: string[], biller?: AdminStaffName) =
     let assignedCount = 0;
     const failedBillingWindowOrderIds: string[] = [];
 
-    setOrders(prevOrders =>
-        prevOrders.map(order => {
+    // Pre-calculate counts before state update to avoid timing issues
+    setOrders(prevOrders => {
+        // Reset counts for this calculation
+        assignedCount = 0;
+        failedBillingWindowOrderIds.length = 0;
+        
+        const updatedOrders = prevOrders.map(order => {
             if (targetOrderIds.includes(order.id)) {
                 if (biller && !isWithinBillingWindow(order.invoiceDate || order.orderDate)) {
                     failedBillingWindowOrderIds.push(order.id);
@@ -3056,18 +3061,23 @@ const _performAssignment = (targetOrderIds: string[], biller?: AdminStaffName) =
                 return { ...order, billedInInsmartBy: biller, status: newStatus };
             }
             return order;
-        })
-    );
+        });
 
-    if (assignedCount > 0) {
-        showToast(`${assignedCount} order(s) ${biller ? `assigned to ${biller}` : 'updated'}.`);
-    }
-    if (failedBillingWindowOrderIds.length > 0) {
-        showToast(`Order(s) #${failedBillingWindowOrderIds.join(', #')} could not be assigned: invoice date is not within the 2-day billing window.`);
-    }
-    if (assignedCount === 0 && failedBillingWindowOrderIds.length === 0 && targetOrderIds.length > 0) {
-        showToast("No orders were eligible for assignment (e.g., already assigned, in progress, or billed).");
-    }
+        // Show toast messages after counts are calculated
+        setTimeout(() => {
+            if (assignedCount > 0) {
+                showToast(`${assignedCount} order(s) ${biller ? `assigned to ${biller}` : 'updated'}.`);
+            }
+            if (failedBillingWindowOrderIds.length > 0) {
+                showToast(`Order(s) #${failedBillingWindowOrderIds.join(', #')} could not be assigned: invoice date is not within the 2-day billing window.`);
+            }
+            if (assignedCount === 0 && failedBillingWindowOrderIds.length === 0 && targetOrderIds.length > 0) {
+                showToast("No orders were eligible for assignment (e.g., already assigned, in progress, or billed).");
+            }
+        }, 0);
+
+        return updatedOrders;
+    });
     // Do not clear adminSelectedOrderIds here, let the calling function manage it
 };
 
@@ -5998,11 +6008,20 @@ const handleSaveInlineEdit = () => {
 
     let valueToSave = inlineEditValue;
     
-    // If we're assigning a biller via inline edit from Ungrouped
-    if (columnId === 'billedInInsmartBy' && valueToSave && !orderBeingEdited.billedInInsmartBy && currentAdminOrderManagementSubTab === 'To Bill in Insmart') {
-        checkAndHandleAssignmentPriority([orderId], valueToSave as AdminStaffName, 'inlineEdit');
-        setEditingCellInfo(null); // Close inline editor, priority modal will handle from here
-        return;
+    // If we're updating biller assignment (including reassignment) via inline edit
+    if (columnId === 'billedInInsmartBy' && currentAdminOrderManagementSubTab === 'To Bill in Insmart') {
+        // Handle both initial assignment and reassignment through the proper validation function
+        if (valueToSave && valueToSave !== orderBeingEdited.billedInInsmartBy) {
+            // This covers both initial assignment and reassignment
+            checkAndHandleAssignmentPriority([orderId], valueToSave as AdminStaffName, 'inlineEdit');
+            setEditingCellInfo(null); // Close inline editor, priority modal will handle from here
+            return;
+        } else if (valueToSave === '' || valueToSave === undefined) {
+            // Handle clearing the biller (unassignment)
+            _performAssignment([orderId], undefined);
+            setEditingCellInfo(null);
+            return;
+        }
     }
 
     // Standard save if not triggering priority check or if priority check already handled
