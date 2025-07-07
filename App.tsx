@@ -349,6 +349,14 @@ export const App: React.FC = () => {
     customReason: ''
   });
 
+  // Internal Billing Hold Modal states
+  const [isBillingHoldModalOpen, setIsBillingHoldModalOpen] = useState(false);
+  const [billingHoldAction, setBillingHoldAction] = useState<{
+    shop: any;
+    orgId: string;
+    action: 'enable' | 'disable';
+  } | null>(null);
+
   // State for User Management
   const [allAppUsers, setAllAppUsers] = useState<AppUser[]>([
     {
@@ -734,7 +742,8 @@ export const App: React.FC = () => {
             Manager: { name: 'Murali', contact: '+65 8170 7358' },
             'PIC of Payments': { name: 'Praveen', contact: 'N/A' },
             'PIC of Ordering': { name: 'Praveen', contact: 'N/A' }
-          }
+          },
+          internalBillingHold: false
         },
         { 
           id: 'shop-2', 
@@ -765,7 +774,8 @@ export const App: React.FC = () => {
             Manager: { name: 'Murali', contact: '+65 8170 7358' },
             'PIC of Payments': { name: 'Murali', contact: '+65 8170 7358' },
             'PIC of Ordering': { name: 'Eswari', contact: 'N/A' }
-          }
+          },
+          internalBillingHold: false
         }
       ]
     }
@@ -9812,6 +9822,17 @@ const renderAdminUserManagementPage = () => {
                                               <Icon name="edit" className="w-4 h-4" />
                                             </button>
                                             <button 
+                                              onClick={() => handleOpenBillingHoldModal(shop, org.id, shop.internalBillingHold ? 'disable' : 'enable')}
+                                              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                                                shop.internalBillingHold 
+                                                  ? 'bg-red-100 text-red-800 hover:bg-red-200 border border-red-300' 
+                                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                                              }`}
+                                              title={`${shop.internalBillingHold ? 'Disable' : 'Enable'} internal billing hold`}
+                                            >
+                                              Internal billing hold: {shop.internalBillingHold ? 'On' : 'Off'}
+                                            </button>
+                                            <button 
                                               onClick={() => handleOpenShopOrgManagementModal(shop, org.id, 'move')}
                                               className="p-2 bg-blue-100 text-blue-700 hover:bg-blue-200 hover:text-blue-800 rounded-lg transition-colors border border-blue-300"
                                               title="Move shop to another organization"
@@ -10025,6 +10046,17 @@ const renderAdminUserManagementPage = () => {
                                       </div>
                                     </div>
                                     <div className="flex items-center space-x-2">
+                                      <button 
+                                        onClick={() => handleOpenBillingHoldModal(shop, '', shop.internalBillingHold ? 'disable' : 'enable')}
+                                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                                          shop.internalBillingHold 
+                                            ? 'bg-red-100 text-red-800 hover:bg-red-200 border border-red-300' 
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                                        }`}
+                                        title={`${shop.internalBillingHold ? 'Disable' : 'Enable'} internal billing hold`}
+                                      >
+                                        Internal billing hold: {shop.internalBillingHold ? 'On' : 'Off'}
+                                      </button>
                                                                              <button 
                                          onClick={() => {
                                            // Find external organizations for re-linking
@@ -10501,7 +10533,8 @@ const renderAdminUserManagementPage = () => {
         Manager: { name: 'Not assigned', contact: 'N/A' },
         'PIC of Payments': { name: 'Not assigned', contact: 'N/A' },
         'PIC of Ordering': { name: 'Not assigned', contact: 'N/A' }
-      }
+      },
+      internalBillingHold: false
     };
 
     // Update organization
@@ -10619,6 +10652,54 @@ const renderAdminUserManagementPage = () => {
       ...prev,
       [field]: value
     }));
+  };
+
+  // Internal Billing Hold handlers
+  const handleOpenBillingHoldModal = (shop: any, orgId: string, action: 'enable' | 'disable') => {
+    setBillingHoldAction({ shop, orgId, action });
+    setIsBillingHoldModalOpen(true);
+  };
+
+  const handleCloseBillingHoldModal = () => {
+    setIsBillingHoldModalOpen(false);
+    setBillingHoldAction(null);
+  };
+
+  const handleConfirmBillingHold = () => {
+    if (!billingHoldAction) return;
+
+    const { shop, orgId, action } = billingHoldAction;
+    
+    // Find the organization and shop
+    const updatedOrganizations = [...organizations];
+    const orgIndex = updatedOrganizations.findIndex(org => org.id === orgId);
+    if (orgIndex !== -1) {
+      const shopIndex = updatedOrganizations[orgIndex].shops.findIndex(s => s.id === shop.id);
+      if (shopIndex !== -1) {
+        // Update the shop's internal billing hold status
+        updatedOrganizations[orgIndex].shops[shopIndex] = {
+          ...updatedOrganizations[orgIndex].shops[shopIndex],
+          internalBillingHold: action === 'enable'
+        };
+        
+        setOrganizations(updatedOrganizations);
+        showToast(`Internal billing hold ${action === 'enable' ? 'enabled' : 'disabled'} for ${shop.name}`);
+      }
+    }
+    
+    // Also handle unlinked shops
+    const updatedUnlinkedShops = [...unlinkedShops];
+    const unlinkedShopIndex = updatedUnlinkedShops.findIndex(s => s.id === shop.id);
+    if (unlinkedShopIndex !== -1) {
+      updatedUnlinkedShops[unlinkedShopIndex] = {
+        ...updatedUnlinkedShops[unlinkedShopIndex],
+        internalBillingHold: action === 'enable'
+      };
+      setUnlinkedShops(updatedUnlinkedShops);
+      showToast(`Internal billing hold ${action === 'enable' ? 'enabled' : 'disabled'} for ${shop.name}`);
+    }
+    
+    handleCloseBillingHoldModal();
   };
 
   const handleSaveShopOrgManagement = () => {
@@ -12800,6 +12881,67 @@ const renderAdminUserManagementPage = () => {
             </div>
           );
         })()}
+      </Modal>
+
+      {/* Internal Billing Hold Confirmation Modal */}
+      <Modal
+        isOpen={isBillingHoldModalOpen}
+        onClose={handleCloseBillingHoldModal}
+        title={billingHoldAction?.action === 'enable' ? 'Enable Internal Billing Hold' : 'Disable Internal Billing Hold'}
+      >
+        {billingHoldAction && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="font-medium text-blue-800 mb-2">Shop Details</h3>
+              <div className="text-sm text-blue-700">
+                <div><span className="font-medium">Shop Name:</span> {billingHoldAction.shop.name}</div>
+                <div><span className="font-medium">Address:</span> {billingHoldAction.shop.address}</div>
+                <div><span className="font-medium">Region:</span> {billingHoldAction.shop.shipmentRegion}</div>
+              </div>
+            </div>
+
+            <div className={`border rounded-lg p-4 ${
+              billingHoldAction.action === 'enable' 
+                ? 'bg-orange-50 border-orange-200' 
+                : 'bg-green-50 border-green-200'
+            }`}>
+              <div className="flex items-center mb-2">
+                <Icon name={billingHoldAction.action === 'enable' ? 'alert' : 'checkCircle'} className={`w-5 h-5 mr-2 ${
+                  billingHoldAction.action === 'enable' ? 'text-orange-600' : 'text-green-600'
+                }`} />
+                <h4 className={`font-medium ${
+                  billingHoldAction.action === 'enable' ? 'text-orange-800' : 'text-green-800'
+                }`}>
+                  {billingHoldAction.action === 'enable' ? 'Warning' : 'Confirmation'}
+                </h4>
+              </div>
+              <p className={`text-sm ${
+                billingHoldAction.action === 'enable' ? 'text-orange-700' : 'text-green-700'
+              }`}>
+                {billingHoldAction.action === 'enable' 
+                  ? `Are you sure you want to enable internal billing hold for "${billingHoldAction.shop.name}"? This will prevent automatic billing processes for this shop.`
+                  : `Are you sure you want to disable internal billing hold for "${billingHoldAction.shop.name}"? This will resume normal billing processes for this shop.`
+                }
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4 border-t border-neutral-100">
+              <Button 
+                variant="secondary" 
+                onClick={handleCloseBillingHoldModal}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={handleConfirmBillingHold}
+                className={billingHoldAction.action === 'enable' ? 'bg-orange-600 hover:bg-orange-700' : ''}
+              >
+                {billingHoldAction.action === 'enable' ? 'Enable Hold' : 'Disable Hold'}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Shop Organization Management Modal */}
