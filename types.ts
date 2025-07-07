@@ -9,6 +9,8 @@ export interface Product {
   vendor?: string; // New field for vendor/supplier
   createdAt?: string; // New field for product added date and time
   updatedAt?: string; // New field for product updated date and time
+  addedBy?: string; // Who added the product
+  updatedBy?: string; // Who last updated the product
 }
 
 export interface CartItem {
@@ -171,11 +173,13 @@ export enum Page {
   PROFILE = 'PROFILE',
   ORDER_DETAILS = 'ORDER_DETAILS', // New page for order details before confirmation
   MODIFY_ORDER = 'MODIFY_ORDER', // New page for modifying existing orders
+  SUPPORT_TICKETS = 'SUPPORT_TICKETS', // New page for support tickets
   // Admin Pages
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   ADMIN_ORDER_MANAGEMENT = 'ADMIN_ORDER_MANAGEMENT',
   ADMIN_USER_MANAGEMENT = 'ADMIN_USER_MANAGEMENT',
   ADMIN_PRODUCT_CATALOG = 'ADMIN_PRODUCT_CATALOG',
+  ADMIN_SUPPORT_TICKETS = 'ADMIN_SUPPORT_TICKETS', // New admin support tickets page
   ADMIN_VIEW_ORDER_PDF = 'ADMIN_VIEW_ORDER_PDF',
   ADMIN_PRINT_ORDERS_PDF = 'ADMIN_PRINT_ORDERS_PDF',
 }
@@ -301,10 +305,19 @@ export type AdminProductTableColumnId =
   | 'productName' 
   | 'uom'
   | 'vendor'
-  | 'price'
+  | 'costPrice'
+  | 'retailPrice'
+  | 'minimartPrice'
+  | 'wholesalePrice'
+  | 'shopCat3Price'
+  | 'shopCat2Price'
+  | 'shopCat1Price'
   | 'category'
   | 'createdAt'
-  | 'updatedAt';
+  | 'addedBy'
+  | 'updatedAt'
+  | 'updatedBy'
+  | 'actions';
 
 export interface AdminProductTableColumnConfig {
     id: AdminProductTableColumnId;
@@ -320,10 +333,19 @@ export const ALL_ADMIN_PRODUCT_TABLE_COLUMNS: AdminProductTableColumnConfig[] = 
     { id: 'productName', label: 'Product Name', defaultVisible: true, minWidth: '200px', isEditable: true },
     { id: 'uom', label: 'UOM', defaultVisible: true, minWidth: '80px', isEditable: true },
     { id: 'vendor', label: 'Vendor', defaultVisible: true, minWidth: '150px', isEditable: true },
-    { id: 'price', label: 'Price', defaultVisible: true, minWidth: '100px', isEditable: true },
+    { id: 'costPrice', label: 'Cost Price', defaultVisible: true, minWidth: '100px', isEditable: true },
+    { id: 'retailPrice', label: 'Retail Price', defaultVisible: false, minWidth: '100px', isEditable: true },
+    { id: 'minimartPrice', label: 'Minimart Price', defaultVisible: false, minWidth: '100px', isEditable: true },
+    { id: 'wholesalePrice', label: 'Wholesale Price', defaultVisible: false, minWidth: '100px', isEditable: true },
+    { id: 'shopCat3Price', label: 'Shop Cat 3 Price', defaultVisible: false, minWidth: '100px', isEditable: true },
+    { id: 'shopCat2Price', label: 'Shop Cat 2 Price', defaultVisible: true, minWidth: '100px', isEditable: true },
+    { id: 'shopCat1Price', label: 'Shop Cat 1 Price', defaultVisible: false, minWidth: '100px', isEditable: true },
     { id: 'category', label: 'Category', defaultVisible: true, minWidth: '120px', isEditable: true },
-    { id: 'createdAt', label: 'Added Date', defaultVisible: true, minWidth: '120px' },
-    { id: 'updatedAt', label: 'Updated Date', defaultVisible: false, minWidth: '120px' },
+    { id: 'createdAt', label: 'Added date and time', defaultVisible: true, minWidth: '140px' },
+    { id: 'addedBy', label: 'Added by', defaultVisible: true, minWidth: '120px' },
+    { id: 'updatedAt', label: 'Update date and time', defaultVisible: true, minWidth: '140px' },
+    { id: 'updatedBy', label: 'Updated by', defaultVisible: true, minWidth: '120px' },
+    { id: 'actions', label: 'Actions', defaultVisible: true, minWidth: '100px' },
 ];
 
 export interface AssignmentPriorityModalInfo {

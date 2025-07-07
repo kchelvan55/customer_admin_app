@@ -55,6 +55,8 @@ import CreateTicketModalModule from './components/CreateTicketModal';
 const CreateTicketModal = unwrap(CreateTicketModalModule, 'CreateTicketModal');
 import ViewTicketModalModule from './components/ViewTicketModal';
 const ViewTicketModal = unwrap(ViewTicketModalModule, 'ViewTicketModal');
+import ViewIssueModalModule from './components/ViewIssueModal';
+const ViewIssueModal = unwrap(ViewIssueModalModule, 'ViewIssueModal');
 import PanelControlBarModule from './components/PanelControlBar';
 const PanelControlBar = unwrap(PanelControlBarModule, 'PanelControlBar');
 
@@ -99,7 +101,7 @@ export const App: React.FC = () => {
   const [adminCurrentPage, setAdminCurrentPage] = useState<Page>(Page.ADMIN_ORDER_MANAGEMENT);
   const [panelDisplayMode, setPanelDisplayMode] = useState<PanelDisplayMode>('customerFocus');
 
-  const [products] = useState<Product[]>(MOCK_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   
   const [stagedForTemplateItems, setStagedForTemplateItems] = useState<Product[]>([]); 
@@ -197,7 +199,20 @@ export const App: React.FC = () => {
     shopBoonLayCard: false,
     shopTuasUpdateRequestSent: false, 
     shopBoonLayUpdateRequestSent: false, 
+    deliveryInfoSection: false,
   });
+
+  // State for live delivery timers
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Live timer update for delivery information
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000); // Update every second for seconds display
+
+    return () => clearInterval(timer);
+  }, []);
 
   const [isAdvanceOrder, setIsAdvanceOrder] = useState<boolean>(false);
   const [selectedInvoiceDate, setSelectedInvoiceDate] = useState<Date | null>(null);
@@ -208,6 +223,13 @@ export const App: React.FC = () => {
   const [allSupportTickets, setAllSupportTickets] = useState<SupportTicket[]>([]);
   const [isViewTicketModalOpen, setIsViewTicketModalOpen] = useState<boolean>(false);
   const [ticketToView, setTicketToView] = useState<SupportTicket | null>(null);
+  const [isViewIssueModalOpen, setIsViewIssueModalOpen] = useState<boolean>(false);
+  const [issueToView, setIssueToView] = useState<(TicketIssue & {
+    ticketId: string;
+    orderId: string;
+    ticketCreatedAt: string;
+    ticketStatus: string;
+  }) | null>(null);
 
   // Admin specific state
   const [adminSelectedOrderIds, setAdminSelectedOrderIds] = useState<string[]>([]);
@@ -518,7 +540,16 @@ export const App: React.FC = () => {
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [newProductForm, setNewProductForm] = useState<Partial<Product>>({
+  const [addProductCurrentStep, setAddProductCurrentStep] = useState(1);
+  const [newProductForm, setNewProductForm] = useState<Partial<Product> & {
+    costPrice?: number;
+    retailPrice?: number;
+    minimartPrice?: number;
+    wholesalePrice?: number;
+    shopCat1Price?: number;
+    shopCat3Price?: number;
+    attachedImageFile?: File | null;
+  }>({
     name: '',
     description: '',
     price: 0,
@@ -526,7 +557,16 @@ export const App: React.FC = () => {
     category: '',
     uom: '',
     vendor: '',
+    costPrice: 0,
+    retailPrice: 0,
+    minimartPrice: 0,
+    wholesalePrice: 0,
+    shopCat1Price: 0,
+    shopCat3Price: 0,
+    attachedImageFile: null,
   });
+
+
 
   // Singapore neighbourhoods for shipment regions
   const singaporeNeighbourhoods = [
@@ -608,6 +648,12 @@ export const App: React.FC = () => {
     { id: 5, title: 'Delivery Hours', description: 'Delivery schedule and timing' }
   ];
 
+  // Product modal step configurations
+  const productModalSteps = [
+    { id: 1, title: 'Product Information', description: 'Basic product details and specifications' },
+    { id: 2, title: 'Pricing', description: 'Cost and selling prices for different customer types' }
+  ];
+
   // Step navigation functions
   const handleAddShopNextStep = () => {
     if (addShopCurrentStep < shopModalSteps.length) {
@@ -630,6 +676,19 @@ export const App: React.FC = () => {
   const handleEditShopPrevStep = () => {
     if (editShopCurrentStep > 1) {
       setEditShopCurrentStep(editShopCurrentStep - 1);
+    }
+  };
+
+  // Product modal step navigation functions
+  const handleAddProductNextStep = () => {
+    if (addProductCurrentStep < productModalSteps.length) {
+      setAddProductCurrentStep(addProductCurrentStep + 1);
+    }
+  };
+
+  const handleAddProductPrevStep = () => {
+    if (addProductCurrentStep > 1) {
+      setAddProductCurrentStep(addProductCurrentStep - 1);
     }
   };
 
@@ -989,6 +1048,20 @@ export const App: React.FC = () => {
         setVisibleAdminOrderColumns(ALL_ADMIN_ORDER_TABLE_COLUMNS.filter(col => col.defaultVisible).map(col => col.id));
     }
 
+    const storedVisibleProductCols = localStorage.getItem('visibleAdminProductColumns');
+    if (storedVisibleProductCols) {
+        try {
+            const parsedCols = JSON.parse(storedVisibleProductCols);
+            if (Array.isArray(parsedCols) && parsedCols.every(col => ALL_ADMIN_PRODUCT_TABLE_COLUMNS.some(c => c.id === col))) {
+                setVisibleAdminProductColumns(parsedCols);
+            }
+        } catch (e) {
+            console.error("Error parsing visible product columns from localStorage", e);
+        }
+    } else { 
+        setVisibleAdminProductColumns(ALL_ADMIN_PRODUCT_TABLE_COLUMNS.filter(col => col.defaultVisible).map(col => col.id));
+    }
+
     const storedShowProductImages = localStorage.getItem('showProductImages');
     if (storedShowProductImages) {
         try {
@@ -1043,8 +1116,156 @@ export const App: React.FC = () => {
         setAllAppUsers(combinedMockUsers);
     }
 
+    // Cross-tab synchronization: Listen for localStorage changes
+    const handleStorageChange = (event: StorageEvent) => {
+      console.log('🔄 Storage event received:', event.key, event.newValue ? 'has value' : 'no value');
+      if (event.key && event.newValue) {
+        try {
+          switch (event.key) {
+            case 'cartItems':
+              console.log('🛒 Syncing cart items from other tab');
+              setCartItems(JSON.parse(event.newValue));
+              break;
+            case 'stagedForTemplateItems':
+              setStagedForTemplateItems(JSON.parse(event.newValue));
+              break;
+            case 'savedTemplates':
+              setSavedTemplates(JSON.parse(event.newValue));
+              break;
+            case 'orders':
+              console.log('📦 Syncing orders from other tab');
+              setOrders(JSON.parse(event.newValue));
+              break;
+            case 'productPageMode':
+              setProductPageMode(event.newValue as ProductPageMode);
+              break;
+            case 'selectedCategories':
+              setSelectedCategories(JSON.parse(event.newValue));
+              break;
+            case 'activeSort':
+              setActiveSort(event.newValue as SortOption);
+              break;
+            case 'currentDraftTemplateItems':
+              setCurrentDraftTemplateItems(JSON.parse(event.newValue));
+              break;
+            case 'newTemplateName':
+              setNewTemplateName(event.newValue);
+              break;
+            case 'editingTemplateId':
+              if (event.newValue && event.newValue !== 'null') {
+                setEditingTemplateId(JSON.parse(event.newValue));
+              } else {
+                setEditingTemplateId(null);
+              }
+              break;
+            case 'currentDraftTemplateDays':
+              setCurrentDraftTemplateDays(JSON.parse(event.newValue));
+              break;
+            case 'currentDraftTemplateShop':
+              if (event.newValue && event.newValue !== 'undefined') {
+                setCurrentDraftTemplateShop(JSON.parse(event.newValue));
+              }
+              break;
+            case 'selectedOrderShopLocation':
+              const parsedShopLocation = JSON.parse(event.newValue);
+              if (ShopLocations.includes(parsedShopLocation as ShopLocation)) {
+                setSelectedOrderShopLocation(parsedShopLocation as ShopLocation);
+              }
+              break;
+            case 'availableShippingAddresses':
+              const parsedShipping = JSON.parse(event.newValue);
+              if (Array.isArray(parsedShipping) && parsedShipping.every(item => typeof item === 'string')) {
+                setAvailableShippingAddresses(parsedShipping);
+              }
+              break;
+            case 'selectedShippingAddressOption':
+              setSelectedShippingAddressOption(event.newValue);
+              break;
+            case 'isBillingSameAsShipping':
+              const parsedBilling = JSON.parse(event.newValue);
+              setIsBillingSameAsShipping(typeof parsedBilling === 'boolean' ? parsedBilling : true);
+              break;
+            case 'selectedBillingAddressOption':
+              setSelectedBillingAddressOption(event.newValue);
+              break;
+            case 'availableContactInfos':
+              const parsedContacts = JSON.parse(event.newValue);
+              if (Array.isArray(parsedContacts) && parsedContacts.every(item => typeof item === 'string')) {
+                setAvailableContactInfos(parsedContacts);
+              }
+              break;
+            case 'selectedContactInfoOption':
+              setSelectedContactInfoOption(event.newValue);
+              break;
+            case 'profileToggles':
+              const parsedToggles = JSON.parse(event.newValue);
+              const defaultProfileState = {
+                generalInfoSection: false, userInfoCard: false, orgDetailsCard: false, managerDetailsCard: false,
+                shopDetailsSection: false, shopTuasCard: false, shopBoonLayCard: false,
+                shopTuasUpdateRequestSent: false, shopBoonLayUpdateRequestSent: false,
+              };
+              setProfileToggles(prev => ({ ...defaultProfileState, ...parsedToggles }));
+              break;
+            case 'isAdvanceOrder':
+              setIsAdvanceOrder(JSON.parse(event.newValue));
+              break;
+            case 'selectedInvoiceDate':
+              if (event.newValue !== 'null') {
+                setSelectedInvoiceDate(new Date(JSON.parse(event.newValue)));
+              }
+              break;
+            case 'orderIdCounter':
+              const parsedCounter = parseInt(event.newValue, 10);
+              if (!isNaN(parsedCounter) && parsedCounter > 0) {
+                setOrderIdCounter(parsedCounter);
+              }
+              break;
+            case 'allSupportTickets':
+              setAllSupportTickets(JSON.parse(event.newValue));
+              break;
+            // Note: Removed customerCurrentPage, adminCurrentPage, and panelDisplayMode sync to allow independent navigation per tab
+            case 'visibleAdminOrderColumns':
+              const parsedAdminCols = JSON.parse(event.newValue);
+              if (Array.isArray(parsedAdminCols) && parsedAdminCols.every(col => ALL_ADMIN_ORDER_TABLE_COLUMNS.some(c => c.id === col))) {
+                setVisibleAdminOrderColumns(parsedAdminCols);
+              }
+              break;
+            case 'visibleAdminProductColumns':
+              const parsedProductCols = JSON.parse(event.newValue);
+              if (Array.isArray(parsedProductCols) && parsedProductCols.every(col => ALL_ADMIN_PRODUCT_TABLE_COLUMNS.some(c => c.id === col))) {
+                setVisibleAdminProductColumns(parsedProductCols);
+              }
+              break;
+            case 'showProductImages':
+              setShowProductImages(JSON.parse(event.newValue));
+              break;
+            case 'currentAdminOrderManagementSubTab':
+              const parsedOrderSubTab = JSON.parse(event.newValue) as AdminOrderManagementSubTab;
+              if (ADMIN_ORDER_MANAGEMENT_SUB_TABS.includes(parsedOrderSubTab)) {
+                setCurrentAdminOrderManagementSubTab(parsedOrderSubTab);
+              }
+              break;
+            case 'currentAdminUserManagementSubTab':
+              const parsedUserSubTab = JSON.parse(event.newValue) as AdminUserManagementSubTab;
+              if (ADMIN_USER_MANAGEMENT_SUB_TABS.includes(parsedUserSubTab)) {
+                setCurrentAdminUserManagementSubTab(parsedUserSubTab);
+              }
+              break;
+            case 'allAppUsers':
+              setAllAppUsers(JSON.parse(event.newValue));
+              break;
+            // Add more cases as needed for other localStorage keys
+          }
+        } catch (e) {
+          console.error(`Error syncing ${event.key} from localStorage:`, e);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
+      window.removeEventListener('storage', handleStorageChange);
       if (toastTimersRef.current.showTimer) clearTimeout(toastTimersRef.current.showTimer);
       if (toastTimersRef.current.hideTimer) clearTimeout(toastTimersRef.current.hideTimer);
       if (toastTimersRef.current.removeTimer) clearTimeout(toastTimersRef.current.removeTimer);
@@ -1080,6 +1301,7 @@ export const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('adminCurrentPage', JSON.stringify(adminCurrentPage)); }, [adminCurrentPage]);
   useEffect(() => { localStorage.setItem('panelDisplayMode', JSON.stringify(panelDisplayMode)); }, [panelDisplayMode]);
   useEffect(() => { localStorage.setItem('visibleAdminOrderColumns', JSON.stringify(visibleAdminOrderColumns)); }, [visibleAdminOrderColumns]);
+  useEffect(() => { localStorage.setItem('visibleAdminProductColumns', JSON.stringify(visibleAdminProductColumns)); }, [visibleAdminProductColumns]);
   useEffect(() => { localStorage.setItem('showProductImages', JSON.stringify(showProductImages)); }, [showProductImages]);
   useEffect(() => { localStorage.setItem('currentAdminOrderManagementSubTab', JSON.stringify(currentAdminOrderManagementSubTab)); }, [currentAdminOrderManagementSubTab]);
   useEffect(() => { localStorage.setItem('currentAdminUserManagementSubTab', JSON.stringify(currentAdminUserManagementSubTab)); }, [currentAdminUserManagementSubTab]);
@@ -2314,7 +2536,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (customerCurrentPage !== Page.PRODUCTS) return; 
 
-    const topMarginForObserver = (SEARCH_BAR_HEIGHT_REM + MODE_SELECTOR_HEIGHT_REM + CATEGORY_DROPDOWN_HEIGHT_REM) * 16; 
+    const DELIVERY_BANNER_HEIGHT_REM = 2; // 2rem for the banner height
+    const topMarginForObserver = (SEARCH_BAR_HEIGHT_REM + MODE_SELECTOR_HEIGHT_REM + CATEGORY_DROPDOWN_HEIGHT_REM + DELIVERY_BANNER_HEIGHT_REM) * 16; 
 
     const observerCallback: IntersectionObserverCallback = (entries) => {
         entries.forEach(entry => {
@@ -2965,9 +3188,9 @@ const checkAndHandleAssignmentPriority = (
           }
           if (flags.shippingDate) {
             if (fields.shippingDate) {
-              updatedOrder.shippingDate = fields.shippingDate.toISOString();
-              if (updatedOrder.status === 'To select date') {
-                  updatedOrder.status = 'To pick person for billing in Insmart';
+            updatedOrder.shippingDate = fields.shippingDate.toISOString();
+            if (updatedOrder.status === 'To select date') {
+                updatedOrder.status = 'To pick person for billing in Insmart';
               }
             } else {
               // Clearing shipping date
@@ -3422,6 +3645,28 @@ const checkAndHandleAssignmentPriority = (
   };
 
 
+  // Get count of unfulfilled orders
+  const getUnfulfilledOrdersCount = (): number => {
+    return orders.filter(order => 
+      order.status !== 'Delivered' && order.status !== 'Cancelled'
+    ).length;
+  };
+
+  // Static banner component for delivery deadline and order count
+  const DeliveryBanner: React.FC = () => {
+    const deadlineText = `Order Deadline: ⏰ ${formatTimeRemaining(getNextNoonTime())} left for ${getShortDeliveryDateForNextNoon()}`;
+    const unfulfilledCount = getUnfulfilledOrdersCount();
+    const orderText = `Currently ${unfulfilledCount} unfulfilled order(s)`;
+    
+    return (
+      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white h-8 flex items-center px-4">
+        <div className="text-sm font-medium truncate">
+          {deadlineText}. {orderText}
+        </div>
+      </div>
+    );
+  };
+
   const renderProductsPage = () => {
     const { allGrouped, allDisplayableCategoriesSorted, hasResults } = displayedProductsResult;
     
@@ -3470,7 +3715,10 @@ const checkAndHandleAssignmentPriority = (
 
     return (
       <div ref={productPageContentRef}> 
-        <div className="sticky top-0 bg-neutral-light z-30 p-2 shadow-sm h-12 flex items-center">
+        {/* Delivery Deadline Banner */}
+        <DeliveryBanner />
+        
+        <div className="sticky top-8 bg-neutral-light z-30 p-2 shadow-sm h-12 flex items-center">
           <div className="relative flex-grow mr-1 sm:mr-2">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
               <Icon name="search" className="w-5 h-5 text-neutral-400" />
@@ -3533,7 +3781,7 @@ const checkAndHandleAssignmentPriority = (
             </Button>
         </div>
 
-        <div className="sticky top-[5.5rem] bg-white z-10 shadow">
+        <div className="sticky top-[7.5rem] bg-white z-10 shadow">
             <button 
                 onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
                 className="w-full flex justify-between items-center px-4 py-1.5 text-left text-neutral-darker hover:bg-neutral-light h-8"
@@ -4590,10 +4838,10 @@ const renderViewTemplateDetailsPage = () => {
                 )}
                 
                 {/* Product image */}
-                {showProductImages && <img src={item.imageUrl} alt={item.name} className="w-16 h-16 object-cover rounded-md mr-3"/>}
+              {showProductImages && <img src={item.imageUrl} alt={item.name} className="w-16 h-16 object-cover rounded-md mr-3"/>}
                 
                 {/* Product details */}
-                <div className="flex-grow">
+              <div className="flex-grow">
                   <p className={`font-semibold text-sm ${
                     item.modificationType === 'removed' ? 'line-through text-red-600' :
                     item.modificationType === 'added' ? 'text-green-700' :
@@ -4601,7 +4849,7 @@ const renderViewTemplateDetailsPage = () => {
                   }`}>
                     {item.name}
                   </p>
-                  <p className="text-xs text-neutral-dark">UOM: {item.uom}</p>
+                <p className="text-xs text-neutral-dark">UOM: {item.uom}</p>
                   
                   {/* Quantity display with modification details */}
                   <div className="text-xs text-neutral-dark">
@@ -4617,7 +4865,7 @@ const renderViewTemplateDetailsPage = () => {
                         Qty: {item.quantity}
                       </span>
                     )}
-                  </div>
+              </div>
                   
                   {/* Modification info */}
                   {item.requestInfo && (
@@ -4627,7 +4875,7 @@ const renderViewTemplateDetailsPage = () => {
                       {item.modificationType === 'quantityChanged' && '📝 Quantity updated'}
                     </p>
                   )}
-                </div>
+            </div>
               </div>
             ));
           })()}
@@ -4662,12 +4910,12 @@ const renderViewTemplateDetailsPage = () => {
               <div className="flex justify-between items-start mb-2">
                 <div>
                     <div className="flex items-center space-x-2">
-                      <h2 
-                          className="text-md font-semibold text-primary cursor-pointer hover:underline" 
-                          onClick={() => { setCurrentOrderDetails(order); setCustomerCurrentPage(Page.ORDER_CONFIRMATION);}}
-                      >
-                          Order ID: #{order.id}
-                      </h2>
+                    <h2 
+                        className="text-md font-semibold text-primary cursor-pointer hover:underline" 
+                        onClick={() => { setCurrentOrderDetails(order); setCustomerCurrentPage(Page.ORDER_CONFIRMATION);}}
+                    >
+                        Order ID: #{order.id}
+                    </h2>
                       {order.modificationRequests && order.modificationRequests.length > 0 && (() => {
                         const pendingRequests = order.modificationRequests.filter(req => req.status === 'pending');
                         const processedRequests = order.modificationRequests.filter(req => req.status !== 'pending');
@@ -4811,7 +5059,7 @@ const renderViewTemplateDetailsPage = () => {
       )}
     </div>
   );
-
+  
   const renderModifyOrderPage = () => {
     if (!orderBeingModified) {
       return (
@@ -5152,6 +5400,113 @@ const renderViewTemplateDetailsPage = () => {
     );
   };
   
+  // Helper functions for delivery information
+  const formatTimeRemaining = (targetTime: Date): string => {
+    const diff = targetTime.getTime() - currentTime.getTime();
+    if (diff <= 0) return "0m0s";
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    if (hours > 0) {
+      return `${hours}h${minutes}m${seconds}s`;
+    }
+    return `${minutes}m${seconds}s`;
+  };
+
+  const getTodayNoonTime = (): Date => {
+    const today = new Date(currentTime);
+    today.setHours(12, 0, 0, 0);
+    return today;
+  };
+
+  const getNextNoonTime = (): Date => {
+    const today = new Date(currentTime);
+    today.setHours(12, 0, 0, 0);
+    
+    // If current time is after 12 PM today, get tomorrow's 12 PM
+    if (currentTime >= today) {
+      const tomorrow = new Date(currentTime);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(12, 0, 0, 0);
+      return tomorrow;
+    }
+    
+    // Otherwise, return today's 12 PM
+    return today;
+  };
+
+  const getTodayTuasDeadline = (): Date => {
+    const today = new Date(currentTime);
+    today.setHours(16, 30, 0, 0);
+    return today;
+  };
+
+  const getNextTuasDeadline = (): Date => {
+    const today = new Date(currentTime);
+    today.setHours(16, 30, 0, 0);
+    
+    // If current time is after 4:30 PM today, get tomorrow's 4:30 PM
+    if (currentTime >= today) {
+      const tomorrow = new Date(currentTime);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(16, 30, 0, 0);
+      return tomorrow;
+    }
+    
+    // Otherwise, return today's 4:30 PM
+    return today;
+  };
+
+  const getTomorrowDate = (): string => {
+    const tomorrow = new Date(currentTime);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toLocaleDateString('en-SG', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const getTodayDate = (): string => {
+    return currentTime.toLocaleDateString('en-SG', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const getDeliveryDateForNextNoon = (): string => {
+    const nextNoon = getNextNoonTime();
+    // For normal locations, delivery is the same day as the deadline
+    return nextNoon.toLocaleDateString('en-SG', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const getShortDeliveryDateForNextNoon = (): string => {
+    const nextNoon = getNextNoonTime();
+    // For banner, show short format like "7 Jul"
+    return nextNoon.toLocaleDateString('en-SG', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const getDeliveryDateForNextTuasDeadline = (): string => {
+    const nextTuasDeadline = getNextTuasDeadline();
+    const deliveryDate = new Date(nextTuasDeadline);
+    deliveryDate.setDate(deliveryDate.getDate() + 1);
+    return deliveryDate.toLocaleDateString('en-SG', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
 const renderProfilePage = () => {
     const ProfileInfoItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
         <p className="text-neutral-darker"><span className="font-medium text-neutral-dark">{label}:</span> {value}</p>
@@ -5299,6 +5654,130 @@ const renderProfilePage = () => {
                     </div>
                 )}
             </div>
+
+            <div className="mb-6">
+                <button 
+                    onClick={() => handleProfileToggle('deliveryInfoSection')}
+                    className="flex justify-between items-center w-full text-left py-3 px-1 mb-3 focus:outline-none"
+                    aria-expanded={profileToggles.deliveryInfoSection}
+                >
+                    <h2 className="text-xl font-semibold text-primary">Delivery Information</h2>
+                    <Icon name="chevronDown" className={`w-6 h-6 text-primary transform transition-transform duration-200 ${profileToggles.deliveryInfoSection ? 'rotate-180' : ''}`} />
+                </button>
+                {profileToggles.deliveryInfoSection && (
+                    <div className="pl-2 border-l-2 border-primary-light">
+                        <div className="bg-white rounded-lg shadow mb-4">
+                            <div className="p-4">
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-neutral-darker mb-3 flex items-center">
+                                        <Icon name="calendar" className="w-5 h-5 mr-2 text-blue-500" />
+                                        Current Time
+                                    </h3>
+                                    <p className="text-neutral-dark">
+                                        {currentTime.toLocaleTimeString('en-SG', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit',
+                                            hour12: true 
+                                        })} - {getTodayDate()}
+                                    </p>
+                                </div>
+
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-neutral-darker mb-4 flex items-center">
+                                        <Icon name="home" className="w-5 h-5 mr-2 text-green-500" />
+                                        For Normal Locations
+                                    </h3>
+                                    
+                                    {/* Dynamic countdown for next 12 PM deadline */}
+                                    <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="info" className="w-4 h-4 mr-2 text-blue-600" />
+                                            <span className="font-semibold text-blue-800">Next Order Deadline:</span>
+                                        </div>
+                                        <p className="text-blue-700 ml-6 font-medium">
+                                            ⏰ {formatTimeRemaining(getNextNoonTime())} left for orders that will be delivered on {getDeliveryDateForNextNoon()}
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-green-50 rounded-lg p-4 mb-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="checkCircle" className="w-4 h-4 mr-2 text-green-600" />
+                                            <span className="font-medium text-green-800">If order is sent before 12:00 PM</span>
+                                        </div>
+                                        <p className="text-green-700 ml-6">Delivered: Same day</p>
+                                    </div>
+                                    <div className="bg-blue-50 rounded-lg p-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="info" className="w-4 h-4 mr-2 text-blue-600" />
+                                            <span className="font-medium text-blue-800">If order is sent after 12:00 PM</span>
+                                        </div>
+                                        <p className="text-blue-700 ml-6">Delivered: Next day</p>
+                                    </div>
+                                </div>
+
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-semibold text-neutral-darker mb-4 flex items-center">
+                                        <Icon name="layoutGrid" className="w-5 h-5 mr-2 text-orange-500" />
+                                        For Special Locations
+                                    </h3>
+                                    
+                                    {/* Dynamic countdown for next Tuas deadline */}
+                                    <div className="bg-red-50 rounded-lg p-4 mb-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="info" className="w-4 h-4 mr-2 text-red-600" />
+                                            <span className="font-semibold text-red-800">Next Tuas Deadline:</span>
+                                        </div>
+                                        <p className="text-red-700 ml-6 font-medium">
+                                            ⏰ {formatTimeRemaining(getNextTuasDeadline())} left for orders that will be delivered on {getDeliveryDateForNextTuasDeadline()}
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-orange-50 rounded-lg p-4">
+                                        <div className="flex items-center mb-3">
+                                            <Icon name="layoutGrid" className="w-4 h-4 mr-2 text-orange-600" />
+                                            <span className="font-semibold text-orange-800">Tuas:</span>
+                                        </div>
+                                        <div className="ml-6 space-y-2">
+                                            <p className="text-orange-700">
+                                                🕐 Our delivery driver leaves at 8:00 AM
+                                            </p>
+                                            <p className="text-orange-700">
+                                                📦 For next day delivery
+                                            </p>
+                                            <p className="text-orange-700">
+                                                ⏰ Please send your order before 4:30 PM the day before delivery
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <h3 className="text-lg font-semibold text-neutral-darker mb-4 flex items-center">
+                                        <Icon name="settings" className="w-5 h-5 mr-2 text-purple-500" />
+                                        Special Orders
+                                    </h3>
+                                    
+                                    <div className="bg-purple-50 rounded-lg p-4 mb-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="settings" className="w-4 h-4 mr-2 text-purple-600" />
+                                            <span className="font-medium text-purple-800">For orders that include grinding</span>
+                                        </div>
+                                        <p className="text-purple-700 ml-6">⏱️ 2 working days</p>
+                                    </div>
+
+                                    <div className="bg-purple-50 rounded-lg p-4">
+                                        <div className="flex items-center mb-2">
+                                            <Icon name="settings" className="w-4 h-4 mr-2 text-purple-600" />
+                                            <span className="font-medium text-purple-800">For orders that include roasted grinding</span>
+                                        </div>
+                                        <p className="text-purple-700 ml-6">⏱️ 3 working days</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
             
              <div className="mt-8 bg-white p-4 rounded-lg shadow">
                 <h2 className="text-lg font-semibold text-neutral-darker mb-3">App Management</h2>
@@ -5339,6 +5818,7 @@ const renderProfilePage = () => {
                             generalInfoSection: false, userInfoCard: false, orgDetailsCard: false, managerDetailsCard: false,
                             shopDetailsSection: false, shopTuasCard: false, shopBoonLayCard: false,
                             shopTuasUpdateRequestSent: false, shopBoonLayUpdateRequestSent: false,
+                            deliveryInfoSection: false,
                         });
                         setVisibleAdminOrderColumns(ALL_ADMIN_ORDER_TABLE_COLUMNS.filter(c => c.defaultVisible).map(c => c.id));
                         setShowProductImages(false); 
@@ -5452,9 +5932,9 @@ const handleSaveInlineEdit = () => {
                 return; // Validation failed, modal shown, wait for user decision
             }
             
-            valueToSave = inlineEditValue.toISOString();
-            if (orderBeingEdited && orderBeingEdited.status === 'To select date' && valueToSave) {
-                statusToUpdate = 'To pick person for billing in Insmart';
+        valueToSave = inlineEditValue.toISOString();
+        if (orderBeingEdited && orderBeingEdited.status === 'To select date' && valueToSave) {
+            statusToUpdate = 'To pick person for billing in Insmart';
             }
         } else if (inlineEditValue === null) {
             // Clearing shipping date
@@ -5767,6 +6247,412 @@ const billTabSortFn = (a:Order, b:Order): number => {
     return new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime(); // Older orders first
 };
 
+// Support Tickets Page
+const renderSupportTicketsPage = () => {
+    const handleViewTicket = (ticket: SupportTicket) => {
+        setTicketToView(ticket);
+        setIsViewTicketModalOpen(true);
+    };
+
+    const handleBackToProfile = () => {
+        setCurrentPage(Page.PROFILE);
+    };
+
+    const formatDate = (dateString: string) => {
+        return new Date(dateString).toLocaleDateString('en-SG', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    const getStatusColor = (status: string) => {
+        switch(status) {
+            case 'Open': return 'bg-red-100 text-red-800';
+            case 'In Progress': return 'bg-yellow-100 text-yellow-800';
+            case 'Resolved': return 'bg-green-100 text-green-800';
+            case 'Closed': return 'bg-gray-100 text-gray-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    };
+
+    return (
+        <div className="p-4 bg-neutral-light min-h-full">
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center">
+                    <Button 
+                        variant="ghost" 
+                        onClick={handleBackToProfile}
+                        className="mr-3 p-2"
+                        title="Back to Profile"
+                    >
+                        <Icon name="chevronLeft" className="w-5 h-5" />
+                    </Button>
+                    <h1 className="text-2xl font-semibold text-neutral-darker">Support Tickets</h1>
+                </div>
+                <div className="text-sm text-neutral-dark">
+                    {allSupportTickets.length} Total Tickets
+                </div>
+            </div>
+
+            {allSupportTickets.length === 0 ? (
+                <div className="bg-white rounded-lg shadow-md p-8 text-center">
+                    <Icon name="ticket" className="w-16 h-16 mx-auto mb-4 text-neutral-light" />
+                    <h3 className="text-lg font-medium text-neutral-darker mb-2">No Support Tickets</h3>
+                    <p className="text-neutral-dark">
+                        You haven't created any support tickets yet. You can create tickets from your order history.
+                    </p>
+                </div>
+            ) : (
+                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-neutral-DEFAULT">
+                            <thead className="bg-neutral-light">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Ticket ID
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Order ID
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Created Date
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Status
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Issues
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-neutral-light">
+                                {allSupportTickets.map((ticket) => (
+                                    <tr key={ticket.id} className="hover:bg-neutral-lightest">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-neutral-darker">
+                                            #{ticket.id}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                            <button
+                                                onClick={() => {
+                                                    // Find the order and navigate to order history
+                                                    const order = orders.find(o => o.id === ticket.orderId);
+                                                    if (order) {
+                                                        setIsViewingPastOrder(true);
+                                                        setOrderToView(order);
+                                                        setCurrentPage(Page.ORDER_CONFIRMATION);
+                                                    }
+                                                }}
+                                                className="text-primary hover:text-primary-dark underline"
+                                            >
+                                                #{ticket.orderId}
+                                            </button>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                            {formatDate(ticket.createdAt)}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(ticket.status)}`}>
+                                                {ticket.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                            {ticket.issues.length} issue{ticket.issues.length !== 1 ? 's' : ''}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleViewTicket(ticket)}
+                                                className="text-primary hover:text-primary-dark"
+                                            >
+                                                <Icon name="eye" className="w-4 h-4 mr-1" />
+                                                View Details
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Admin Support Tickets Page
+const renderAdminSupportTicketsPage = () => {
+    const handleViewTicket = (ticket: SupportTicket) => {
+        setTicketToView(ticket);
+        setIsViewTicketModalOpen(true);
+    };
+
+    const handleViewIssue = (issue: TicketIssue & {
+        ticketId: string;
+        orderId: string;
+        ticketCreatedAt: string;
+        ticketStatus: string;
+    }) => {
+        setIssueToView(issue);
+        setIsViewIssueModalOpen(true);
+    };
+
+    const handleCloseViewIssueModal = () => {
+        setIsViewIssueModalOpen(false);
+        setIssueToView(null);
+    };
+
+    const handleBackToDashboard = () => {
+        setAdminCurrentPage(Page.ADMIN_DASHBOARD);
+    };
+
+    const handleUpdateTicketStatus = (ticketId: string, newStatus: SupportTicket['status']) => {
+        setAllSupportTickets(prev => 
+            prev.map(ticket => 
+                ticket.id === ticketId 
+                    ? { ...ticket, status: newStatus }
+                    : ticket
+            )
+        );
+        showToast(`Ticket #${ticketId} status updated to ${newStatus}`);
+    };
+
+    const formatDate = (dateString: string) => {
+        return new Date(dateString).toLocaleDateString('en-SG', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    const getStatusColor = (status: string) => {
+        switch(status) {
+            case 'Open': return 'bg-red-100 text-red-800 border-red-200';
+            case 'In Progress': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+            case 'Resolved': return 'bg-green-100 text-green-800 border-green-200';
+            case 'Closed': return 'bg-gray-100 text-gray-800 border-gray-200';
+            default: return 'bg-gray-100 text-gray-800 border-gray-200';
+        }
+    };
+
+    const getStatusOptions = (currentStatus: SupportTicket['status']) => {
+        const allStatuses: SupportTicket['status'][] = ['Open', 'In Progress', 'Resolved', 'Closed'];
+        return allStatuses.filter(status => status !== currentStatus);
+    };
+
+    // Flatten tickets to show one issue per row
+    const flattenedIssues = allSupportTickets.flatMap(ticket => 
+        ticket.issues.map(issue => ({
+            ...issue,
+            ticketId: ticket.id,
+            ticketStatus: ticket.status,
+            ticketCreatedAt: ticket.createdAt,
+            orderId: ticket.orderId,
+            fullTicket: ticket
+        }))
+    );
+
+    const openIssuesCount = flattenedIssues.filter(issue => issue.ticketStatus === 'Open').length;
+    const inProgressIssuesCount = flattenedIssues.filter(issue => issue.ticketStatus === 'In Progress').length;
+    const resolvedIssuesCount = flattenedIssues.filter(issue => issue.ticketStatus === 'Resolved').length;
+    const closedIssuesCount = flattenedIssues.filter(issue => issue.ticketStatus === 'Closed').length;
+
+    return (
+        <div className="p-4 bg-neutral-light min-h-full">
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center">
+                    <Button 
+                        variant="ghost" 
+                        onClick={handleBackToDashboard}
+                        className="mr-3 p-2"
+                        title="Back to Dashboard"
+                    >
+                        <Icon name="chevronLeft" className="w-5 h-5" />
+                    </Button>
+                    <h1 className="text-2xl font-semibold text-neutral-darker">Admin Support Tickets</h1>
+                </div>
+                <div className="text-sm text-neutral-dark">
+                    {flattenedIssues.length} Total Issues ({allSupportTickets.length} Tickets)
+                </div>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-red-500">
+                    <div className="flex items-center">
+                        <div className="bg-red-100 p-2 rounded-full">
+                            <Icon name="ticket" className="w-5 h-5 text-red-600" />
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm text-neutral-dark">Open</p>
+                            <p className="text-xl font-bold text-neutral-darker">{openIssuesCount}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-yellow-500">
+                    <div className="flex items-center">
+                        <div className="bg-yellow-100 p-2 rounded-full">
+                            <Icon name="refreshCcw" className="w-5 h-5 text-yellow-600" />
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm text-neutral-dark">In Progress</p>
+                            <p className="text-xl font-bold text-neutral-darker">{inProgressIssuesCount}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
+                    <div className="flex items-center">
+                        <div className="bg-green-100 p-2 rounded-full">
+                            <Icon name="checkCircle" className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm text-neutral-dark">Resolved</p>
+                            <p className="text-xl font-bold text-neutral-darker">{resolvedIssuesCount}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-gray-500">
+                    <div className="flex items-center">
+                        <div className="bg-gray-100 p-2 rounded-full">
+                            <Icon name="xCircle" className="w-5 h-5 text-gray-600" />
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm text-neutral-dark">Closed</p>
+                            <p className="text-xl font-bold text-neutral-darker">{closedIssuesCount}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {flattenedIssues.length === 0 ? (
+                <div className="bg-white rounded-lg shadow-md p-8 text-center">
+                    <Icon name="ticket" className="w-16 h-16 mx-auto mb-4 text-neutral-light" />
+                    <h3 className="text-lg font-medium text-neutral-darker mb-2">No Support Issues</h3>
+                    <p className="text-neutral-dark">
+                        No support issues have been reported yet. Customers can create tickets from their order history.
+                    </p>
+                </div>
+            ) : (
+                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-neutral-DEFAULT">
+                            <thead className="bg-neutral-light">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Order ID
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Issue Type
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Issue Details
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Created Date
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Status
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-neutral-light">
+                                {flattenedIssues.map((issue, index) => {
+                                    const relatedOrder = orders.find(order => order.id === issue.orderId);
+                                    
+                                    // Helper function to get issue details
+                                    const getIssueDetails = (issue: any) => {
+                                        switch(issue.issueType) {
+                                            case 'Order Delay':
+                                                return issue.issueDescription || 'Order delivery delayed';
+                                            case 'Missing Item':
+                                                return `Missing ${issue.relatedProductIds?.length || 0} item(s)`;
+                                            case 'Incorrect item':
+                                                return `Wrong item(s) received`;
+                                            case 'Incorrect quantity':
+                                                return `Expected ${issue.quantityInOrder}, received ${issue.quantityReceived}`;
+                                            case 'Damaged item':
+                                                return `Damaged item(s) received`;
+                                            default:
+                                                return issue.issueType;
+                                        }
+                                    };
+
+                                    return (
+                                        <tr key={`${issue.ticketId}-${issue.id}-${index}`} className="hover:bg-neutral-lightest">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                                <button
+                                                    onClick={() => {
+                                                        if (relatedOrder) {
+                                                            setOrderToView(relatedOrder);
+                                                            setAdminCurrentPage(Page.ADMIN_VIEW_ORDER_PDF);
+                                                        }
+                                                    }}
+                                                    className="text-primary hover:text-primary-dark underline"
+                                                >
+                                                    #{issue.orderId}
+                                                </button>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                                <span className="font-medium">{issue.issueType}</span>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-neutral-darker max-w-xs truncate">
+                                                {getIssueDetails(issue)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-darker">
+                                                {formatDate(issue.ticketCreatedAt)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="flex items-center space-x-2">
+                                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(issue.ticketStatus)}`}>
+                                                        {issue.ticketStatus}
+                                                    </span>
+                                                    <select
+                                                        value={issue.ticketStatus}
+                                                        onChange={(e) => handleUpdateTicketStatus(issue.ticketId, e.target.value as SupportTicket['status'])}
+                                                        className="text-xs border border-neutral-DEFAULT rounded px-2 py-1 bg-white"
+                                                    >
+                                                        <option value={issue.ticketStatus}>{issue.ticketStatus}</option>
+                                                        {getStatusOptions(issue.ticketStatus).map(status => (
+                                                            <option key={status} value={status}>{status}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                <div className="flex space-x-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleViewIssue(issue)}
+                                                        className="text-primary hover:text-primary-dark"
+                                                    >
+                                                        <Icon name="eye" className="w-4 h-4 mr-1" />
+                                                        View Issue
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 // Admin Product Catalog Page
 const renderAdminProductCatalogPage = () => {
@@ -5795,8 +6681,149 @@ const renderAdminProductCatalogPage = () => {
       category: '',
       uom: '',
       vendor: '',
+      costPrice: 0,
+      retailPrice: 0,
+      minimartPrice: 0,
+      wholesalePrice: 0,
+      shopCat1Price: 0,
+      shopCat3Price: 0,
+      attachedImageFile: null,
     });
+    setAddProductCurrentStep(1);
     setIsAddProductModalOpen(true);
+  };
+
+  // Price validation function
+  const validatePriceHierarchy = (prices: {
+    costPrice?: number;
+    shopCat1Price?: number;
+    shopCat2Price?: number;
+    shopCat3Price?: number;
+    wholesalePrice?: number;
+    minimartPrice?: number;
+    retailPrice?: number;
+  }): { isValid: boolean; errorMessage?: string } => {
+    const {
+      costPrice = 0,
+      shopCat1Price = 0,
+      shopCat2Price = 0,
+      shopCat3Price = 0,
+      wholesalePrice = 0,
+      minimartPrice = 0,
+      retailPrice = 0
+    } = prices;
+
+    // Skip validation if all prices are 0 (except shop cat 2 which is required)
+    const nonZeroPrices = [costPrice, shopCat1Price, shopCat3Price, wholesalePrice, minimartPrice, retailPrice].filter(p => p > 0);
+    if (nonZeroPrices.length === 0) {
+      return { isValid: true };
+    }
+
+    // Check hierarchy: Cost Price < Shop Cat 1 Price < Shop Cat 2 Price < Shop Cat 3 Price < Wholesale Price < Minimart Price < Retail Price
+    if (costPrice > 0 && shopCat1Price > 0 && costPrice >= shopCat1Price) {
+      return { isValid: false, errorMessage: 'Cost Price must be less than Shop Cat 1 Price' };
+    }
+    if (shopCat1Price > 0 && shopCat2Price > 0 && shopCat1Price >= shopCat2Price) {
+      return { isValid: false, errorMessage: 'Shop Cat 1 Price must be less than Shop Cat 2 Price' };
+    }
+    if (shopCat2Price > 0 && shopCat3Price > 0 && shopCat2Price >= shopCat3Price) {
+      return { isValid: false, errorMessage: 'Shop Cat 2 Price must be less than Shop Cat 3 Price' };
+    }
+    if (shopCat3Price > 0 && wholesalePrice > 0 && shopCat3Price >= wholesalePrice) {
+      return { isValid: false, errorMessage: 'Shop Cat 3 Price must be less than Wholesale Price' };
+    }
+    if (wholesalePrice > 0 && minimartPrice > 0 && wholesalePrice >= minimartPrice) {
+      return { isValid: false, errorMessage: 'Wholesale Price must be less than Minimart Price' };
+    }
+    if (minimartPrice > 0 && retailPrice > 0 && minimartPrice >= retailPrice) {
+      return { isValid: false, errorMessage: 'Minimart Price must be less than Retail Price' };
+    }
+
+    return { isValid: true };
+  };
+
+  const handleSaveNewProduct = () => {
+    console.log('handleSaveNewProduct called'); // Debug log
+    console.log('Form data:', newProductForm); // Debug log
+    
+    // Basic validation
+    if (!newProductForm.name || !newProductForm.uom || !newProductForm.category || !newProductForm.price) {
+      console.log('Validation failed - missing required fields:', {
+        name: !newProductForm.name,
+        uom: !newProductForm.uom,
+        category: !newProductForm.category,
+        price: !newProductForm.price
+      });
+      showToast('Please fill in all required fields', 'error');
+      return;
+    }
+
+    // Price hierarchy validation
+    const priceValidation = validatePriceHierarchy({
+      costPrice: newProductForm.costPrice,
+      shopCat1Price: newProductForm.shopCat1Price,
+      shopCat2Price: newProductForm.price, // Shop Cat 2 is stored as 'price'
+      shopCat3Price: newProductForm.shopCat3Price,
+      wholesalePrice: newProductForm.wholesalePrice,
+      minimartPrice: newProductForm.minimartPrice,
+      retailPrice: newProductForm.retailPrice
+    });
+
+    if (!priceValidation.isValid) {
+      console.log('Price validation failed:', priceValidation.errorMessage);
+      showToast(priceValidation.errorMessage || 'Invalid price hierarchy', 'error');
+      return;
+    }
+
+    console.log('All validation passed, creating product...');
+
+    // Generate a unique product ID
+    const newProductId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create new product object
+    const newProduct: Product = {
+      id: newProductId,
+      name: newProductForm.name,
+      description: newProductForm.description || '',
+      price: newProductForm.price || 0,
+      imageUrl: newProductForm.imageUrl || '',
+      category: newProductForm.category || '',
+      uom: newProductForm.uom || '',
+      vendor: newProductForm.vendor || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      addedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF, // Set who added the product
+      updatedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF, // Set who last updated
+    };
+
+    console.log('New product created:', newProduct);
+
+    // Add to products array
+    setProducts([...products, newProduct]);
+
+    // Close modal and reset form
+    setIsAddProductModalOpen(false);
+    setAddProductCurrentStep(1);
+    setNewProductForm({
+      name: '',
+      description: '',
+      price: 0,
+      imageUrl: '',
+      category: '',
+      uom: '',
+      vendor: '',
+      costPrice: 0,
+      retailPrice: 0,
+      minimartPrice: 0,
+      wholesalePrice: 0,
+      shopCat1Price: 0,
+      shopCat3Price: 0,
+      attachedImageFile: null,
+    });
+
+    // Show success message
+    showToast(`Product "${newProduct.name}" added successfully!`, 'success');
+    console.log('Product saved successfully');
   };
 
   const handleOpenEditProductModal = (product: Product) => {
@@ -5809,8 +6836,83 @@ const renderAdminProductCatalogPage = () => {
       category: product.category,
       uom: product.uom,
       vendor: product.vendor || '',
+      costPrice: 0, // These would need to be stored in the Product interface eventually
+      retailPrice: 0,
+      minimartPrice: 0,
+      wholesalePrice: 0,
+      shopCat1Price: 0,
+      shopCat3Price: 0,
+      attachedImageFile: null,
     });
+    setAddProductCurrentStep(1);
     setIsEditProductModalOpen(true);
+  };
+
+  const handleSaveEditProduct = () => {
+    if (!editingProduct) return;
+
+    // Basic validation
+    if (!newProductForm.name || !newProductForm.uom || !newProductForm.category || !newProductForm.price) {
+      showToast('Please fill in all required fields', 'error');
+      return;
+    }
+
+    // Price hierarchy validation
+    const priceValidation = validatePriceHierarchy({
+      costPrice: newProductForm.costPrice,
+      shopCat1Price: newProductForm.shopCat1Price,
+      shopCat2Price: newProductForm.price, // Shop Cat 2 is stored as 'price'
+      shopCat3Price: newProductForm.shopCat3Price,
+      wholesalePrice: newProductForm.wholesalePrice,
+      minimartPrice: newProductForm.minimartPrice,
+      retailPrice: newProductForm.retailPrice
+    });
+
+    if (!priceValidation.isValid) {
+      showToast(priceValidation.errorMessage || 'Invalid price hierarchy', 'error');
+      return;
+    }
+
+    // Update the product
+    const updatedProduct: Product = {
+      ...editingProduct,
+      name: newProductForm.name,
+      description: newProductForm.description || '',
+      price: newProductForm.price || 0,
+      imageUrl: newProductForm.imageUrl || '',
+      category: newProductForm.category || '',
+      uom: newProductForm.uom || '',
+      vendor: newProductForm.vendor || '',
+      updatedAt: new Date().toISOString(),
+      updatedBy: DEFAULT_LOGGED_IN_ADMIN_STAFF, // Set who updated the product
+    };
+
+    // Update products array
+    setProducts(products.map(p => p.id === editingProduct.id ? updatedProduct : p));
+
+    // Close modal and reset form
+    setIsEditProductModalOpen(false);
+    setAddProductCurrentStep(1);
+    setEditingProduct(null);
+    setNewProductForm({
+      name: '',
+      description: '',
+      price: 0,
+      imageUrl: '',
+      category: '',
+      uom: '',
+      vendor: '',
+      costPrice: 0,
+      retailPrice: 0,
+      minimartPrice: 0,
+      wholesalePrice: 0,
+      shopCat1Price: 0,
+      shopCat3Price: 0,
+      attachedImageFile: null,
+    });
+
+    // Show success message
+    showToast(`Product "${updatedProduct.name}" updated successfully!`, 'success');
   };
 
   const formatDate = (dateString?: string) => {
@@ -5823,6 +6925,8 @@ const renderAdminProductCatalogPage = () => {
       minute: '2-digit'
     });
   };
+
+
 
   const columnsToRender = ALL_ADMIN_PRODUCT_TABLE_COLUMNS.filter(col => 
     visibleAdminProductColumns.includes(col.id)
@@ -5893,12 +6997,18 @@ const renderAdminProductCatalogPage = () => {
         <table className="min-w-full divide-y divide-neutral-DEFAULT">
           <thead className="bg-neutral-light">
             <tr>
-              {columnsToRender.map(colConfig => (
+              {columnsToRender.map((colConfig, index) => (
                 <th 
                   key={colConfig.id}
                   scope="col"
-                  className="px-3 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider"
-                  style={{ minWidth: colConfig.minWidth }}
+                  className={`px-3 py-3 text-left text-xs font-medium text-neutral-dark uppercase tracking-wider ${
+                    index <= 2 ? 'sticky bg-neutral-light' : ''
+                  }`}
+                  style={{ 
+                    minWidth: colConfig.minWidth,
+                    left: index === 0 ? 0 : index === 1 ? '50px' : index === 2 ? '130px' : 'auto',
+                    zIndex: index <= 2 ? 10 : 1
+                  }}
                 >
                   {colConfig.id === 'select' ? (
                     <input
@@ -5918,24 +7028,38 @@ const renderAdminProductCatalogPage = () => {
           <tbody className="bg-white divide-y divide-neutral-light">
             {products.map(product => (
               <tr key={product.id} className="hover:bg-neutral-lightest transition-colors duration-150">
-                {columnsToRender.map(colConfig => {
+                {columnsToRender.map((colConfig, index) => {
                   let cellValue: any;
                   switch(colConfig.id) {
                     case 'productName': cellValue = product.name; break;
                     case 'uom': cellValue = product.uom; break;
                     case 'vendor': cellValue = product.vendor || 'N/A'; break;
-                    case 'price': cellValue = `$${product.price.toFixed(2)}`; break;
+                    case 'costPrice': cellValue = ''; break; // Leave blank for now
+                    case 'retailPrice': cellValue = ''; break; // Leave blank for now
+                    case 'minimartPrice': cellValue = ''; break; // Leave blank for now
+                    case 'wholesalePrice': cellValue = ''; break; // Leave blank for now
+                    case 'shopCat3Price': cellValue = ''; break; // Leave blank for now
+                    case 'shopCat2Price': cellValue = `$${product.price.toFixed(2)}`; break; // Use existing price
+                    case 'shopCat1Price': cellValue = ''; break; // Leave blank for now
                     case 'category': cellValue = product.category; break;
                     case 'createdAt': cellValue = formatDate(product.createdAt); break;
+                    case 'addedBy': cellValue = product.addedBy || 'N/A'; break;
                     case 'updatedAt': cellValue = formatDate(product.updatedAt); break;
+                    case 'updatedBy': cellValue = product.updatedBy || 'N/A'; break;
                     default: cellValue = null;
                   }
 
                   return (
                     <td 
                       key={`${product.id}-${colConfig.id}`}
-                      className="px-3 py-4 whitespace-nowrap text-sm"
-                      style={{ minWidth: colConfig.minWidth }}
+                      className={`px-3 py-4 whitespace-nowrap text-sm ${
+                        index <= 2 ? 'sticky bg-white' : ''
+                      }`}
+                      style={{ 
+                        minWidth: colConfig.minWidth,
+                        left: index === 0 ? 0 : index === 1 ? '50px' : index === 2 ? '130px' : 'auto',
+                        zIndex: index <= 2 ? 10 : 1
+                      }}
                     >
                       {(() => {
                         switch(colConfig.id) {
@@ -6017,6 +7141,650 @@ const renderAdminProductCatalogPage = () => {
           </div>
         )}
       </div>
+
+      {/* Add Product Modal */}
+      <Modal
+        isOpen={isAddProductModalOpen}
+        onClose={() => setIsAddProductModalOpen(false)}
+        title={`Add New Product - Step ${addProductCurrentStep} of ${productModalSteps.length}`}
+        size="lg"
+        footer={
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              {addProductCurrentStep > 1 && (
+                <Button variant="ghost" onClick={handleAddProductPrevStep}>
+                  Back
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                onClick={() => setIsAddProductModalOpen(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+            {addProductCurrentStep < productModalSteps.length ? (
+              <Button
+                variant="primary"
+                onClick={handleAddProductNextStep}
+                disabled={
+                  addProductCurrentStep === 1 && 
+                  (!newProductForm.name || !newProductForm.uom || !newProductForm.category)
+                }
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={handleSaveNewProduct}
+                disabled={!newProductForm.name || !newProductForm.uom || !newProductForm.category || !newProductForm.price}
+              >
+                Add Product
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Step Title and Progress */}
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-neutral-darker mb-1">
+              {productModalSteps[addProductCurrentStep - 1]?.title}
+            </h3>
+            <p className="text-sm text-neutral-dark mb-2">
+              Step {addProductCurrentStep} of {productModalSteps.length}
+            </p>
+            <p className="text-xs text-neutral-dark mb-3">
+              {productModalSteps[addProductCurrentStep - 1]?.description}
+            </p>
+            
+            <div className="w-full bg-neutral-light rounded-full h-2 mb-4">
+              <div 
+                className="bg-primary h-2 rounded-full transition-all duration-300"
+                style={{ width: `${(addProductCurrentStep / productModalSteps.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Step 1: Product Information */}
+          {addProductCurrentStep === 1 && (
+            <div className="space-y-4">
+              {/* Product Image */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Product Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    if (file) {
+                      const imageUrl = URL.createObjectURL(file);
+                      setNewProductForm({
+                        ...newProductForm, 
+                        attachedImageFile: file,
+                        imageUrl: imageUrl
+                      });
+                    }
+                  }}
+                />
+                {newProductForm.imageUrl && (
+                  <div className="mt-2">
+                    <img 
+                      src={newProductForm.imageUrl} 
+                      alt="Product preview" 
+                      className="w-20 h-20 object-cover rounded-md border border-neutral-light"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Product Name */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.name || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, name: e.target.value})}
+                  placeholder="Enter product name"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Description</label>
+                <textarea
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.description || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, description: e.target.value})}
+                  placeholder="Enter product description"
+                  rows={3}
+                />
+              </div>
+
+              {/* UOM and Vendor */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Unit of Measure (UOM) *</label>
+                  <select
+                    className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.uom || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, uom: e.target.value})}
+                    required
+                  >
+                    <option value="">Select UOM</option>
+                    <option value="125g">125g</option>
+                    <option value="250g">250g</option>
+                    <option value="500g">500g</option>
+                    <option value="1kg">1kg</option>
+                    <option value="600mL">600mL</option>
+                    <option value="1L">1L</option>
+                    <option value="25kg">25kg</option>
+                    <option value="30kg">30kg</option>
+                    <option value="pcs">pcs</option>
+                    <option value="boxes">boxes</option>
+                    <option value="bags">bags</option>
+                    <option value="packets">packets</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Vendor</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.vendor || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, vendor: e.target.value})}
+                    placeholder="Enter vendor name"
+                  />
+                </div>
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Category *</label>
+                <select
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.category || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, category: e.target.value})}
+                  required
+                >
+                  <option value="">Select a category</option>
+                  <option value="Rice">Rice</option>
+                  <option value="Pulses">Pulses</option>
+                  <option value="Spices">Spices</option>
+                  <option value="Oil">Oil</option>
+                  <option value="Flour">Flour</option>
+                  <option value="Dry Fruits">Dry Fruits</option>
+                  <option value="Beverages">Beverages</option>
+                  <option value="Snacks">Snacks</option>
+                  <option value="Dairy">Dairy</option>
+                  <option value="Frozen">Frozen</option>
+                  <option value="Canned Goods">Canned Goods</option>
+                  <option value="Condiments">Condiments</option>
+                  <option value="Sweets">Sweets</option>
+                  <option value="Personal Care">Personal Care</option>
+                  <option value="Household">Household</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Pricing */}
+          {addProductCurrentStep === 2 && (
+            <div className="space-y-4">
+              {/* Cost Price */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Cost Price</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.costPrice || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, costPrice: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              {/* Default Price (Shop Cat 2) */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 2 Price *</label>
+                <p className="text-xs text-neutral-dark mb-2">Default Price unless specified in User Management</p>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.price || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, price: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Remaining Price Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Retail Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.retailPrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, retailPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Minimart Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.minimartPrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, minimartPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Wholesale Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.wholesalePrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, wholesalePrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 3 Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.shopCat3Price || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, shopCat3Price: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 1 Price</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.shopCat1Price || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, shopCat1Price: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+
+        </div>
+      </Modal>
+
+      {/* Edit Product Modal */}
+      <Modal
+        isOpen={isEditProductModalOpen}
+        onClose={() => setIsEditProductModalOpen(false)}
+        title={`Edit Product - Step ${addProductCurrentStep} of ${productModalSteps.length}`}
+        size="lg"
+        footer={
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              {addProductCurrentStep > 1 && (
+                <Button variant="ghost" onClick={handleAddProductPrevStep}>
+                  Back
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                onClick={() => setIsEditProductModalOpen(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+            {addProductCurrentStep < productModalSteps.length ? (
+              <Button
+                variant="primary"
+                onClick={handleAddProductNextStep}
+                disabled={
+                  addProductCurrentStep === 1 && 
+                  (!newProductForm.name || !newProductForm.uom || !newProductForm.category)
+                }
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={handleSaveEditProduct}
+                disabled={!newProductForm.name || !newProductForm.uom || !newProductForm.category || !newProductForm.price}
+              >
+                Update Product
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Step Title and Progress */}
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-neutral-darker mb-1">
+              {productModalSteps[addProductCurrentStep - 1]?.title}
+            </h3>
+            <p className="text-sm text-neutral-dark mb-2">
+              Step {addProductCurrentStep} of {productModalSteps.length}
+            </p>
+            <p className="text-xs text-neutral-dark mb-3">
+              {productModalSteps[addProductCurrentStep - 1]?.description}
+            </p>
+            
+            <div className="w-full bg-neutral-light rounded-full h-2 mb-4">
+              <div 
+                className="bg-primary h-2 rounded-full transition-all duration-300"
+                style={{ width: `${(addProductCurrentStep / productModalSteps.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Step 1: Product Information */}
+          {addProductCurrentStep === 1 && (
+            <div className="space-y-4">
+              {/* Product Image */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Product Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    if (file) {
+                      const imageUrl = URL.createObjectURL(file);
+                      setNewProductForm({
+                        ...newProductForm, 
+                        attachedImageFile: file,
+                        imageUrl: imageUrl
+                      });
+                    }
+                  }}
+                />
+                {newProductForm.imageUrl && (
+                  <div className="mt-2">
+                    <img 
+                      src={newProductForm.imageUrl} 
+                      alt="Product preview" 
+                      className="w-20 h-20 object-cover rounded-md border border-neutral-light"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Product Name */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.name || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, name: e.target.value})}
+                  placeholder="Enter product name"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Description</label>
+                <textarea
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.description || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, description: e.target.value})}
+                  placeholder="Enter product description"
+                  rows={3}
+                />
+              </div>
+
+              {/* UOM and Vendor */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Unit of Measure (UOM) *</label>
+                  <select
+                    className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.uom || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, uom: e.target.value})}
+                    required
+                  >
+                    <option value="">Select UOM</option>
+                    <option value="125g">125g</option>
+                    <option value="250g">250g</option>
+                    <option value="500g">500g</option>
+                    <option value="1kg">1kg</option>
+                    <option value="600mL">600mL</option>
+                    <option value="1L">1L</option>
+                    <option value="25kg">25kg</option>
+                    <option value="30kg">30kg</option>
+                    <option value="pcs">pcs</option>
+                    <option value="boxes">boxes</option>
+                    <option value="bags">bags</option>
+                    <option value="packets">packets</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Vendor</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.vendor || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, vendor: e.target.value})}
+                    placeholder="Enter vendor name"
+                  />
+                </div>
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Category *</label>
+                <select
+                  className="w-full px-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  value={newProductForm.category || ''}
+                  onChange={(e) => setNewProductForm({...newProductForm, category: e.target.value})}
+                  required
+                >
+                  <option value="">Select a category</option>
+                  <option value="Rice">Rice</option>
+                  <option value="Pulses">Pulses</option>
+                  <option value="Spices">Spices</option>
+                  <option value="Oil">Oil</option>
+                  <option value="Flour">Flour</option>
+                  <option value="Dry Fruits">Dry Fruits</option>
+                  <option value="Beverages">Beverages</option>
+                  <option value="Snacks">Snacks</option>
+                  <option value="Dairy">Dairy</option>
+                  <option value="Frozen">Frozen</option>
+                  <option value="Canned Goods">Canned Goods</option>
+                  <option value="Condiments">Condiments</option>
+                  <option value="Sweets">Sweets</option>
+                  <option value="Personal Care">Personal Care</option>
+                  <option value="Household">Household</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Pricing */}
+          {addProductCurrentStep === 2 && (
+            <div className="space-y-4">
+              {/* Cost Price */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Cost Price</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.costPrice || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, costPrice: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              {/* Default Price (Shop Cat 2) */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 2 Price *</label>
+                <p className="text-xs text-neutral-dark mb-2">Default Price unless specified in User Management</p>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.price || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, price: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Remaining Price Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Retail Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.retailPrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, retailPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Minimart Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.minimartPrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, minimartPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Wholesale Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.wholesalePrice || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, wholesalePrice: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 3 Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={newProductForm.shopCat3Price || ''}
+                      onChange={(e) => setNewProductForm({...newProductForm, shopCat3Price: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-neutral-darker mb-1">Shop Cat 1 Price</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-neutral-dark">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-3 py-2 border border-neutral-light rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={newProductForm.shopCat1Price || ''}
+                    onChange={(e) => setNewProductForm({...newProductForm, shopCat1Price: parseFloat(e.target.value) || 0})}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+
+        </div>
+      </Modal>
     </div>
   );
 };
@@ -6058,12 +7826,15 @@ const renderAdminDashboardPage = () => {
                     <p className="text-neutral-dark">Manage product details and categories.</p>
                     <p className="text-neutral-darker font-bold mt-2">{products.length} Total Products</p>
                 </div>
-                 <div className="bg-white p-6 rounded-lg shadow-md opacity-50 cursor-not-allowed">
+                 <div 
+                     className="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg hover:bg-neutral-lightest transition-all duration-200"
+                     onClick={() => handleAdminNavigate(Page.ADMIN_SUPPORT_TICKETS)}
+                 >
                      <div className="flex items-center text-neutral-dark mb-3">
                         <Icon name="ticket" className="w-8 h-8 mr-3"/>
                         <h2 className="text-xl font-semibold">Support Tickets</h2>
                     </div>
-                    <p className="text-neutral-dark">(Coming Soon) View and manage customer support tickets.</p>
+                    <p className="text-neutral-dark">View and manage customer support tickets.</p>
                     <p className="text-neutral-darker font-bold mt-2">{allSupportTickets.length} Open Tickets</p>
                  </div>
             </div>
@@ -6517,7 +8288,7 @@ const renderAdminOrderManagementPage = () => {
                                 
                                 return limitAmount > 0 && order.totalPrice >= limitAmount;
                             }).length;
-                                }
+                        }
         else if (tab === 'Modification Requests') count = orders.filter(hasAnyModificationRequests).length;
                         else if (tab === 'All Orders') count = orders.length;
 
@@ -7526,8 +9297,8 @@ const renderOrderPdfLayout = (ordersToDisplay: Order[], isMultiPrint: boolean) =
                                 const modificationInfo = getItemModificationInfo(order, item.id);
                                 
                                 return (
-                                    <tr key={item.id} className="border-b border-neutral-light">
-                                        <td className="py-2 pr-2">{idx + 1}</td>
+                                <tr key={item.id} className="border-b border-neutral-light">
+                                    <td className="py-2 pr-2">{idx + 1}</td>
                                         <td className="py-2">
                                             <div>
                                                 <div>{item.name} <span className="text-neutral-dark">({item.uom})</span></div>
@@ -7546,9 +9317,9 @@ const renderOrderPdfLayout = (ordersToDisplay: Order[], isMultiPrint: boolean) =
                                                 <span>{item.quantity}</span>
                                             )}
                                         </td>
-                                        <td className="py-2 text-right">${item.price.toFixed(2)}</td>
-                                        <td className="py-2 text-right">${(item.price * item.quantity).toFixed(2)}</td>
-                                    </tr>
+                                    <td className="py-2 text-right">${item.price.toFixed(2)}</td>
+                                    <td className="py-2 text-right">${(item.price * item.quantity).toFixed(2)}</td>
+                                </tr>
                                 );
                             })}
                         </tbody>
@@ -8334,6 +10105,7 @@ const renderAdminUserManagementPage = () => {
                     case Page.ORDER_HISTORY: return renderOrderHistoryPage();
                     case Page.MODIFY_ORDER: return renderModifyOrderPage();
                     case Page.PROFILE: return renderProfilePage();
+                    case Page.SUPPORT_TICKETS: return renderSupportTicketsPage();
                     default:
                         setCustomerCurrentPage(Page.PRODUCTS); 
                         return renderProductsPage();
@@ -8353,6 +10125,7 @@ const renderAdminUserManagementPage = () => {
                     case Page.ADMIN_ORDER_MANAGEMENT: return renderAdminOrderManagementPage();
                     case Page.ADMIN_USER_MANAGEMENT: return renderAdminUserManagementPage();
                     case Page.ADMIN_PRODUCT_CATALOG: return renderAdminProductCatalogPage();
+                    case Page.ADMIN_SUPPORT_TICKETS: return renderAdminSupportTicketsPage();
                     case Page.ADMIN_VIEW_ORDER_PDF: return renderAdminViewOrderPdfPage();
                     case Page.ADMIN_PRINT_ORDERS_PDF: return renderAdminPrintOrdersPdfPage();
                     default: 
@@ -8979,6 +10752,20 @@ const renderAdminUserManagementPage = () => {
         />
       )}
 
+      {isViewIssueModalOpen && issueToView && (
+        <ViewIssueModal
+            isOpen={isViewIssueModalOpen}
+            onClose={() => {
+                setIsViewIssueModalOpen(false);
+                setIssueToView(null);
+            }}
+            issue={issueToView}
+            orderItems={orders.find(order => order.id === issueToView.orderId)?.items || []} 
+            allProducts={products} 
+            formatDate={formatDateForDisplay}
+        />
+      )}
+
       <Modal
         isOpen={isDiscardConfirmModalOpen}
         onClose={() => setIsDiscardConfirmModalOpen(false)}
@@ -9315,6 +11102,36 @@ const renderAdminUserManagementPage = () => {
                                 setVisibleAdminOrderColumns(prev => [...prev, colConfig.id]);
                             } else {
                                 setVisibleAdminOrderColumns(prev => prev.filter(id => id !== colConfig.id));
+                            }
+                        }}
+                    />
+                    <span className="text-neutral-darker">{colConfig.label}</span>
+                </label>
+            ))}
+        </div>
+      </Modal>
+
+      {/* Product Columns Modal */}
+      <Modal
+        isOpen={isProductColumnSelectModalOpen}
+        onClose={() => setIsProductColumnSelectModalOpen(false)}
+        title="Customize Product Columns"
+        footer={
+            <Button variant="primary" onClick={() => setIsProductColumnSelectModalOpen(false)}>Done</Button>
+        }
+      >
+        <div className="space-y-2 max-h-80 overflow-y-auto">
+            {ALL_ADMIN_PRODUCT_TABLE_COLUMNS.filter(col => col.id !== 'select').map(colConfig => (
+                <label key={colConfig.id} className="flex items-center space-x-3 p-2 hover:bg-neutral-light rounded-md cursor-pointer">
+                    <input 
+                        type="checkbox"
+                        className="form-checkbox h-5 w-5 text-primary rounded focus:ring-primary-light"
+                        checked={visibleAdminProductColumns.includes(colConfig.id)}
+                        onChange={(e) => {
+                            if (e.target.checked) {
+                                setVisibleAdminProductColumns(prev => [...prev, colConfig.id]);
+                            } else {
+                                setVisibleAdminProductColumns(prev => prev.filter(id => id !== colConfig.id));
                             }
                         }}
                     />
@@ -11258,6 +13075,9 @@ const renderAdminUserManagementPage = () => {
           );
         })()}
       </Modal>
+
+
+
     </div>
   );
 };
