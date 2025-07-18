@@ -4,7 +4,7 @@ A comprehensive React application for an Indian grocery business (Selvi Mills) t
 
 ## 🌐 Live Demo
 
-**Public URL**: `https://prepared-mako-sharp.ngrok-free.app`
+**Production URL**: [https://customer-admin-app.vercel.app/](https://customer-admin-app.vercel.app/)
 
 ## 🚀 Quick Start
 
@@ -26,131 +26,110 @@ npm run dev
 ```
 
 ### Access URLs
-- **Local**: `http://localhost:5173/`
-- **Network**: `http://192.168.1.106:5173/` (same WiFi network)
-- **Public**: `https://prepared-mako-sharp.ngrok-free.app` (via ngrok tunnel)
+- **Local Development**: `http://localhost:5173/`
+- **Production**: [https://customer-admin-app.vercel.app/](https://customer-admin-app.vercel.app/)
 
-## 🔗 Tunnel Setup for Client Sharing
+## 🏗️ Deployment
 
-### Using Ngrok (Recommended)
+### Vercel Deployment (Recommended)
+This app is automatically deployed to Vercel for 24/7 availability:
 
-1. **Sign up for ngrok** (Free account): https://dashboard.ngrok.com/signup
-2. **Get your authtoken**: https://dashboard.ngrok.com/get-started/your-authtoken
-3. **Configure ngrok**:
-   ```bash
-   npx ngrok config add-authtoken YOUR_AUTHTOKEN_HERE
-   ```
-4. **Start the tunnel**:
-   ```bash
-   npx ngrok http 5173 --domain=prepared-mako-sharp.ngrok-free.app
-   ```
+1. **Automatic Deployments**: Every push to the `main` branch triggers a new deployment
+2. **Production URL**: [https://customer-admin-app.vercel.app/](https://customer-admin-app.vercel.app/)
+3. **Build Process**: Uses `npm run build` with Vite
+4. **Output Directory**: `dist/`
 
-### Alternative Tunnel Services
-
-If ngrok doesn't work, try these alternatives:
-
-#### Cloudflared (No authentication required)
+### Manual Deployment
 ```bash
-npx cloudflared tunnel --url http://localhost:5173
+# Build the project
+npm run build
+
+# Deploy to Vercel
+npx vercel --prod
 ```
 
-#### Localtunnel (May have firewall issues)
-```bash
-npx localtunnel --port 5173 --subdomain customerproducthub
-```
+## 🎯 Key Features
 
-## 🛠️ Features
-
-### Customer Features
+### **Customer Portal:**
 - **Product Catalog** - Browse Indian groceries (spices, lentils, rice, snacks, beverages, etc.)
 - **Shopping Cart** - Add/remove items, adjust quantities
 - **Order Management** - Place orders, view order history, modify existing orders
-- **Template System** - Save and reuse order templates for recurring purchases
-- **Support Tickets** - Create tickets for order issues (delays, missing items, etc.)
-- **Profile Management** - Manage shipping addresses, contact info, shop details
+- **Real-time Updates** - Live order status tracking
+- **Responsive Design** - Works on desktop, tablet, and mobile
 
-### Admin Features
-- **Order Management** - Process orders, assign staff, update statuses
-- **User Management** - Manage internal staff and external customers
-- **Product Catalog Management** - Add/edit products, manage pricing
-- **Organization & Shop Management** - Manage customer organizations and their shops
-- **Support Ticket Management** - Handle customer support requests
-- **Billing & Shipping** - Manage billing processes and delivery schedules
+### **Admin Portal:**
+- **Order Management** - View, process, and track all customer orders
+- **Product Management** - Add, edit, and manage product catalog
+- **Customer Management** - View customer profiles and order history
+- **Billing System** - Process payments and generate invoices
+- **Analytics Dashboard** - Sales reports and business insights
 
-## 🏗️ Technical Architecture
+### **Technical Features:**
+- **React 18** with TypeScript
+- **Vite** for fast development and building
+- **Tailwind CSS** for modern styling
+- **Responsive Design** - Mobile-first approach
+- **Real-time Updates** - Live order status changes
+- **PDF Generation** - Order confirmations and invoices
+- **Search & Filtering** - Advanced product search capabilities
 
-- **Frontend**: React with TypeScript
-- **Build Tool**: Vite
-- **State Management**: React hooks (useState, useEffect, useCallback, useMemo)
+## 🛠️ Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite
 - **Styling**: Tailwind CSS
-- **Persistence**: Local Storage with cross-tab synchronization
-- **Tunnel Service**: Ngrok for public access
+- **State Management**: React Hooks (useState, useEffect, useCallback)
+- **Build Tool**: Vite
+- **Deployment**: Vercel
+- **Version Control**: Git/GitHub
 
 ## 📁 Project Structure
 
 ```
 customer-product-hub/
-├── App.tsx                 # Main application component
-├── components/             # Reusable UI components
-├── constants.ts            # Mock data and constants
-├── types.ts               # TypeScript type definitions
-├── package.json           # Dependencies and scripts
-└── README.md              # This file
+├── components/          # Reusable UI components
+├── App.tsx             # Main application component
+├── types.ts            # TypeScript type definitions
+├── constants.ts        # Mock data and constants
+├── package.json        # Dependencies and scripts
+├── vite.config.ts      # Vite configuration
+└── README.md           # Project documentation
 ```
 
 ## 🔧 Development
 
 ### Available Scripts
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
+```bash
+npm run dev          # Start development server
+npm run build        # Build for production
+npm run preview      # Preview production build
+```
 
-### Key Components
-- **Navbar/AdminNavbar** - Navigation for different user types
-- **ProductCard** - Product display component
-- **CartItemDisplay** - Shopping cart item component
-- **Modal** - Reusable modal system
-- **Button** - Styled button component
-- **DatePicker** - Date selection component
-- **PanelControlBar** - Admin panel controls
+### Environment Setup
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Start development server: `npm run dev`
+4. Open [http://localhost:5173](http://localhost:5173)
 
-## 📊 Data Structures
+## 📱 Responsive Design
 
-- **Products** - Indian grocery items with categories, pricing, UOM
-- **Orders** - Complete order lifecycle with status tracking
-- **Templates** - Reusable order templates
-- **Users** - Both internal staff and external customers
-- **Organizations** - Customer organizations with multiple shops
-- **Modification Requests** - Order change request system
+The application is fully responsive and optimized for:
+- **Desktop**: Full-featured experience with all admin tools
+- **Tablet**: Optimized layout for touch interactions
+- **Mobile**: Streamlined interface for on-the-go ordering
 
-## 🌍 Deployment
+## 🔄 Continuous Deployment
 
-### For Client Sharing
-1. Start the development server: `npm run dev`
-2. Set up ngrok tunnel: `npx ngrok http 5173 --domain=your-domain.ngrok-free.app`
-3. Share the ngrok URL with clients
-
-### For Production
-1. Build the application: `npm run build`
-2. Deploy the `dist` folder to your hosting service (Vercel, Netlify, etc.)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📝 License
-
-This project is proprietary software for Selvi Mills.
+- **GitHub Integration**: Automatic deployments on push to main branch
+- **Vercel Platform**: Global CDN with automatic scaling
+- **24/7 Availability**: No downtime when your laptop is closed
+- **Instant Updates**: Changes are live within minutes
 
 ## 📞 Support
 
-For support or questions, please contact the development team.
+For technical support or questions about the application:
+- **Repository**: [https://github.com/kchelvan55/customer_admin_app](https://github.com/kchelvan55/customer_admin_app)
+- **Live Demo**: [https://customer-admin-app.vercel.app/](https://customer-admin-app.vercel.app/)
 
----
+## 📄 License
 
-**Last Updated**: July 2024
-**Tunnel Method**: Ngrok (replaced localtunnel due to firewall restrictions)
+This project is proprietary software for Selvi Mills customer product management system.
