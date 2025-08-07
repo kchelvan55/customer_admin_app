@@ -50,88 +50,132 @@ As a business owner managing multiple Indian grocery stores, I need a comprehens
 
 ## 🎨 UI/UX Walkthrough: Features & Workflows
 
-### **Customer Portal Interface**
+### **Organization & Shop Management System**
 
-#### **1. Product Catalog & Shopping Experience**
+#### **🏢 Organization Setup Process**
+
+Before creating shops, you need to establish an organization structure:
+
+**1. Organization Creation:**
+- **Organization Name**: e.g., "Al-Sheika", "Selvi Mills"
+- **Organization Type**: B2B, B2C, or Hybrid
+- **Contact Information**: Primary contact person and details
+- **Billing Address**: Default billing location
+- **Tax Information**: GST registration and tax details
+
+**2. Shop Creation within Organization:**
+Each organization can have multiple shop locations with the following fields:
+
+**Required Shop Fields:**
+- **Shop Name**: e.g., "Al-Sheika Tuas", "Al-Sheika Boon Lay"
+- **Shop Address**: Complete shipping and billing address
+- **Contact Person**: Primary contact for the shop
+- **Phone Number**: Shop contact number
+- **Email**: Shop email address
+- **Operating Hours**: Business hours and days
+- **Customer Type**: Shop Cat 1, Shop Cat 2, Shop Cat 3, Minimart, Retail
+- **Pricing Tier**: Determines product pricing for this shop
+- **Payment Terms**: Credit terms, payment methods
+- **Delivery Zone**: Geographic delivery area
+- **Preferred Delivery Days**: Available delivery schedules
+
+**Optional Shop Fields:**
+- **Shop Manager**: Person in charge of the location
+- **Special Instructions**: Delivery notes, access instructions
+- **Minimum Order Value**: Required order amount
+- **Credit Limit**: Maximum credit allowed
+- **Tax Exemption**: Any tax exemptions or special rates
+
+#### **🔄 How Shop Details Are Used Throughout the Application**
+
+**1. Invoice Generation:**
 ```
+Invoice Header:
 ┌─────────────────────────────────────────────────────────────┐
-│ 🏠 Customer Product Hub                    👤 Profile     │
-├─────────────────────────────────────────────────────────────┤
-│ Search: [________________] 🔍  Filter: [Category ▼]       │
-├─────────────────────────────────────────────────────────────┤
-│ 📦 Spices        🥜 Lentils     🍚 Rice        🍿 Snacks │
-├─────────────────────────────────────────────────────────────┤
-│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
-│ │ Turmeric    │ │ Toor Dal    │ │ Basmati     │          │
-│ │ $12.50/kg   │ │ $8.75/kg    │ │ $15.00/kg   │          │
-│ │ [+ Add]     │ │ [+ Add]     │ │ [+ Add]     │          │
-│ └─────────────┘ └─────────────┘ └─────────────┘          │
+│ Al-Sheika Tuas                                            │
+│ 123 Tuas Avenue, Singapore 123456                         │
+│ Contact: Mani | Phone: +65 8468 2040                     │
+│ Customer Type: Shop Cat 1 | Credit Terms: Net 30          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### **2. Cart & Order Management**
+**2. Customer Profile Page:**
 ```
+Profile Information:
 ┌─────────────────────────────────────────────────────────────┐
-│ 🛒 Shopping Cart (3 items)                                │
+│ 👤 Customer Profile                                        │
 ├─────────────────────────────────────────────────────────────┤
-│ Turmeric Powder    2kg    $25.00    [±] [🗑️]            │
-│ Basmati Rice       5kg    $75.00    [±] [🗑️]            │
-│ Toor Dal           3kg    $26.25    [±] [🗑️]            │
-├─────────────────────────────────────────────────────────────┤
-│ Subtotal: $126.25    Total: $126.25    [📋 Place Order] │
+│ Organization: Al-Sheika                                   │
+│ Shop Location: Al-Sheika Tuas                             │
+│ Address: 123 Tuas Avenue, Singapore 123456                │
+│ Contact: Mani (Owner)                                     │
+│ Phone: +65 8468 2040                                      │
+│ Customer Type: Shop Cat 1                                  │
+│ Pricing Tier: Wholesale                                    │
+│ Credit Limit: $10,000                                     │
+│ Payment Terms: Net 30                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### **3. Template System for Quick Reordering**
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 📋 Order Templates                                        │
-├─────────────────────────────────────────────────────────────┤
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Monthly Staples                                        │ │
-│ │ 15 items • Last used: 2 days ago                       │ │
-│ │ [👁️ View] [📋 Use Template] [✏️ Edit]                │ │
-│ └─────────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Quick Meals                                            │ │
-│ │ 8 items • Last used: 1 week ago                        │ │
-│ │ [👁️ View] [📋 Use Template] [✏️ Edit]                │ │
-│ └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+**3. Order Management:**
+- **Shop-specific pricing** applied automatically
+- **Delivery scheduling** based on shop's preferred days
+- **Credit limit validation** during order placement
+- **Tax calculation** based on shop's tax settings
 
-### **Admin Portal Interface**
+**4. Admin Dashboard:**
+- **Shop-specific order views** and filtering
+- **Location-based reporting** and analytics
+- **Shop-specific billing** and payment tracking
+- **Delivery route optimization** by shop location
 
-#### **4. Order Management Dashboard**
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 👨‍💼 Admin Dashboard - Order Management                    │
-├─────────────────────────────────────────────────────────────┤
-│ [To Pick Date] [To Bill] [Billed] [Schedule] [All Orders]│
-├─────────────────────────────────────────────────────────────┤
-│ Order ID │ Customer │ Shop      │ Total │ Status          │
-│ 0001     │ Mani     │ Al-Sheika │ $126  │ To select date  │
-│ 0002     │ Murali   │ Al-Sheika │ $89   │ To pick person  │
-│ 0003     │ Praveen  │ Al-Sheika │ $234  │ Billing in prog │
-└─────────────────────────────────────────────────────────────┘
-```
+#### **🔄 Organization & Shop Connection Management**
 
-#### **5. Billing Workflow Management**
+**Changing Shop Organization Connection:**
+
+1. **Transfer Process:**
+   ```
+   Current: Al-Sheika Tuas → Al-Sheika Organization
+   Transfer to: New Organization (e.g., "Selvi Mills Direct")
+   ```
+
+2. **Required Steps:**
+   - **Admin Approval**: Super admin must approve transfer
+   - **Data Migration**: Order history, templates, and preferences
+   - **Pricing Update**: New organization's pricing structure
+   - **Contact Update**: New organization's contact information
+   - **Access Rights**: Update user permissions and roles
+
+3. **Impact on Existing Data:**
+   - **Orders**: Historical orders remain with original organization
+   - **Templates**: Templates can be transferred or recreated
+   - **Credit History**: Credit terms may change with new organization
+   - **Pricing**: Products may have different prices in new organization
+
+#### **👥 Role-based Access by Organization & Shop**
+
+**Organization Level Roles:**
+- **Super Admin**: Full access across all organizations
+- **Organization Admin**: Manage shops within their organization
+- **Organization Manager**: View and manage orders for their organization
+
+**Shop Level Roles:**
+- **Shop Owner**: Full access to their shop location
+- **Shop Manager**: Order management and staff supervision
+- **PIC of Ordering**: Place and modify orders
+- **PIC of Payments**: Handle billing and payment processing
+
+**Example Role Assignment:**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ 💳 Billing Management - "To Bill in Insmart"              │
-├─────────────────────────────────────────────────────────────┤
-│ Ungrouped Orders:                                        │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Order #0001 │ Mani │ $126 │ [Assign to: Saraswathi ▼] │ │
-│ │ Order #0002 │ Murali│ $89 │ [Assign to: Sumathi ▼]    │ │
-│ └─────────────────────────────────────────────────────────┘ │
-│                                                           │
-│ Saraswathi's Queue:                                      │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Order #0003 │ [Start Billing] [Complete] [Cancel]     │ │
-│ └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+Organization: Al-Sheika
+├── Shop: Al-Sheika Tuas
+│   ├── Mani (Owner) - Full access
+│   ├── Murali (Manager) - Order management
+│   └── Praveen (PIC) - Ordering & Payments
+└── Shop: Al-Sheika Boon Lay
+    ├── Mani (Owner) - Full access
+    ├── Murali (Manager) - Order management
+    └── Eswari (PIC) - Ordering only
 ```
 
 ### **Key Workflow Connections**
