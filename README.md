@@ -38,6 +38,21 @@ As a business owner managing multiple Indian grocery stores, I need a comprehens
    - Payment tracking and billing status monitoring
    - Order modification request system with approval workflow
 
+5. **Insmart Billing System**
+   - Staff can pick orders they want to bill from the "To Bill in Insmart" queue
+   - Billing workflow: "To pick person" → "Order delegated for billing" → "Billing in progress" → "Billed in Insmart"
+   - One staff member can only bill one order at a time (prevents conflicts)
+   - Priority-based order assignment based on shipping dates and customer types
+   - Real-time billing status updates visible to both staff and customers
+
+6. **Accounting & Internal Controls**
+   - Internal billing hold system to block shops with payment issues
+   - Shops can be temporarily blocked from placing new orders due to outstanding payments
+   - Automatic credit limit validation during order placement
+   - Payment terms enforcement (Net 30, Net 60, etc.)
+   - Aging report generation for outstanding invoices
+   - Shop-specific credit limits and payment history tracking
+
 #### **Key Features Required:**
 
 - **Template System**: Save and reuse order templates for regular purchases
@@ -151,6 +166,86 @@ Profile Information:
    - **Templates**: Templates can be transferred or recreated
    - **Credit History**: Credit terms may change with new organization
    - **Pricing**: Products may have different prices in new organization
+
+#### **💳 Insmart Billing System & Internal Controls**
+
+**Billing Workflow Process:**
+
+1. **Order Assignment to Biller:**
+   ```
+   Admin Portal: "To Bill in Insmart" tab
+   ├── Ungrouped Orders (no biller assigned)
+   │   ├── Order #0001 │ Mani │ $126 │ [Assign to: Saraswathi ▼]
+   │   └── Order #0002 │ Murali│ $89 │ [Assign to: Sumathi ▼]
+   └── Grouped by Biller
+       ├── Saraswathi's Queue
+       │   ├── Order #0003 │ [Start Billing] [Complete] [Cancel]
+       │   └── Order #0004 │ [Start Billing] [Complete] [Cancel]
+       └── Sumathi's Queue
+           └── Order #0005 │ [Start Billing] [Complete] [Cancel]
+   ```
+
+2. **Billing Status Progression:**
+   ```
+   Order Status Flow:
+   "To pick person for billing" 
+   ↓ (Admin assigns biller)
+   "Order delegated for billing"
+   ↓ (Biller starts billing)
+   "Billing in progress"
+   ↓ (Biller completes billing)
+   "Billed in Insmart"
+   ↓ (System processes)
+   "Confirmed" (Customer sees update)
+   ```
+
+3. **Priority-based Assignment:**
+   - **Shipping Date Priority**: Earlier shipping dates get higher priority
+   - **Customer Type Priority**: Shop Cat 1 > Shop Cat 2 > Shop Cat 3 > Retail
+   - **Order Date Priority**: Older orders get higher priority
+   - **Credit Status Priority**: Shops with good payment history get priority
+
+**Internal Billing Hold System:**
+
+1. **Shop Blocking Process:**
+   ```
+   Admin Portal: "Accounting Related" tab
+   ├── Shops with Outstanding Payments
+   │   ├── Al-Sheika Tuas │ Outstanding: $2,450 │ Days Overdue: 45
+   │   │   └── [🔒 Block Shop] [📊 View Aging Report]
+   │   └── Al-Sheika Boon Lay │ Outstanding: $1,890 │ Days Overdue: 30
+   │       └── [🔒 Block Shop] [📊 View Aging Report]
+   └── Blocked Shops
+       ├── Al-Sheika Tuas │ Blocked: 2024-01-10 │ Reason: Payment overdue
+       └── [🔓 Unblock Shop] [📧 Send Payment Reminder]
+   ```
+
+2. **Blocking Effects:**
+   - **Order Placement**: Blocked shops cannot place new orders
+   - **Template Usage**: Existing templates are disabled
+   - **Customer Portal**: Shows "Account on hold" message
+   - **Admin Notifications**: Real-time alerts for blocked shops
+
+3. **Unblocking Process:**
+   ```
+   Admin Portal: "Unblock Shop" workflow
+   1. Review payment history and outstanding amounts
+   2. Verify payment received or payment plan agreed
+   3. Update credit status and payment terms
+   4. Remove billing hold flag
+   5. Send notification to shop about account reactivation
+   ```
+
+4. **Credit Limit Validation:**
+   ```
+   Order Placement Process:
+   Customer Portal: [📋 Place Order] → $1,500 order
+   ↓
+   System Check: Current outstanding + new order vs credit limit
+   ├── If within limit: Order proceeds
+   ├── If exceeds limit: Show "Credit limit exceeded" error
+   └── If shop blocked: Show "Account on hold" error
+   ```
 
 #### **👥 Role-based Access by Organization & Shop**
 
